@@ -14,8 +14,6 @@ import {
   Divider,
   Stack,
   TextField,
-  List,
-  ListItem,
   LinearProgress,
   Autocomplete,
   FormControl,
@@ -25,7 +23,10 @@ import {
   Checkbox,
   FormControlLabel,
   IconButton,
+  Avatar,
+  Paper,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import { MovieCard } from "../components/MovieCard";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
@@ -34,6 +35,10 @@ import ThumbUpOutlinedIcon from "@mui/icons-material/ThumbUpOutlined";
 import ThumbUpIcon from "@mui/icons-material/ThumbUp";
 import ThumbDownOutlinedIcon from "@mui/icons-material/ThumbDownOutlined";
 import ThumbDownIcon from "@mui/icons-material/ThumbDown";
+import LocalActivityOutlinedIcon from "@mui/icons-material/LocalActivityOutlined";
+import RateReviewOutlinedIcon from "@mui/icons-material/RateReviewOutlined";
+import RecommendOutlinedIcon from "@mui/icons-material/RecommendOutlined";
+import StarIcon from "@mui/icons-material/Star";
 import {
   useGetMovieQuery,
   useGetMovieShowsQuery,
@@ -205,54 +210,71 @@ export function MovieDetailPage() {
               : undefined,
         }}
       />
-      <Grid container spacing={4}>
-        <Grid item xs={12} sm={5} md={4}>
-          <Box
-            component="img"
-            src={movie.posterUrl ?? "https://placehold.co/300x450?text=No+Poster"}
-            alt={movie.title}
-            sx={{
-              width: { xs: "60%", sm: "100%" },
-              maxWidth: { xs: 260, sm: "none" },
-              display: "block",
-              mx: { xs: "auto", sm: 0 },
-              borderRadius: 2,
-              boxShadow: "0 20px 40px -20px rgba(0,0,0,0.6)",
-            }}
-          />
-        </Grid>
-        <Grid item xs={12} sm={7} md={8}>
-          <Stack direction="row" alignItems="center" spacing={2} flexWrap="wrap" useFlexGap>
-            <Typography variant="h4">{movie.title}</Typography>
-            <Button
-              component="a"
-              href={`https://www.youtube.com/results?search_query=${encodeURIComponent(`${movie.title} trailer`)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              startIcon={<PlayCircleOutlineIcon />}
-              size="small"
-              variant="outlined"
-            >
-              Watch Trailer
-            </Button>
-          </Stack>
-          <Stack direction="row" spacing={1} my={1}>
-            <Chip label={movie.genre} size="small" />
-            <Chip label={`${movie.durationMins} mins`} size="small" />
-          </Stack>
-          <Box display="flex" alignItems="center" gap={1} mb={2}>
-            <Rating value={movie.averageRating} precision={0.5} readOnly />
-            <Typography color="text.secondary">
-              {movie.averageRating.toFixed(1)} ({movie.ratingCount} ratings)
+      <Box
+        sx={{
+          position: "relative",
+          borderRadius: 3,
+          border: "1px solid",
+          borderColor: "divider",
+          p: { xs: 2.5, sm: 3, md: 4 },
+          mb: 4,
+          overflow: "hidden",
+          backgroundImage: (theme) =>
+            `radial-gradient(ellipse 900px 500px at 0% 0%, ${alpha(theme.palette.primary.main, 0.12)}, transparent), radial-gradient(ellipse 700px 400px at 100% 100%, ${alpha(theme.palette.secondary.main, 0.08)}, transparent)`,
+        }}
+      >
+        <Grid container spacing={4}>
+          <Grid item xs={12} sm={5} md={4}>
+            <Box
+              component="img"
+              src={movie.posterUrl ?? "https://placehold.co/300x450?text=No+Poster"}
+              alt={movie.title}
+              sx={{
+                width: { xs: "60%", sm: "100%" },
+                maxWidth: { xs: 260, sm: "none" },
+                display: "block",
+                mx: { xs: "auto", sm: 0 },
+                borderRadius: 2,
+                border: "1px solid",
+                borderColor: "divider",
+                boxShadow: "0 20px 40px -20px rgba(0,0,0,0.6)",
+              }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={7} md={8}>
+            <Typography variant="h3" fontWeight={800} sx={{ fontSize: { xs: "1.9rem", sm: "2.4rem" } }} gutterBottom>
+              {movie.title}
             </Typography>
-          </Box>
-          <Typography paragraph color="text.secondary">
-            {movie.description}
-          </Typography>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+              <Chip label={movie.genre} size="small" color="secondary" variant="outlined" />
+              <Chip label={`${movie.durationMins} mins`} size="small" variant="outlined" />
+            </Stack>
+            <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" useFlexGap sx={{ mb: 2.5 }}>
+              <Stack direction="row" alignItems="center" spacing={0.75}>
+                <StarIcon fontSize="small" sx={{ color: "secondary.main" }} />
+                <Typography fontWeight={700}>{movie.averageRating.toFixed(1)}</Typography>
+                <Typography color="text.secondary" variant="body2">
+                  ({movie.ratingCount} rating{movie.ratingCount === 1 ? "" : "s"})
+                </Typography>
+              </Stack>
+              <Button
+                component="a"
+                href={`https://www.youtube.com/results?search_query=${encodeURIComponent(`${movie.title} trailer`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                startIcon={<PlayCircleOutlineIcon />}
+                size="small"
+                variant="outlined"
+              >
+                Watch Trailer
+              </Button>
+            </Stack>
+            <Typography color="text.secondary" sx={{ lineHeight: 1.7 }}>
+              {movie.description}
+            </Typography>
+          </Grid>
         </Grid>
-      </Grid>
-
-      <Divider sx={{ my: 4 }} />
+      </Box>
 
       <Stack
         direction={{ xs: "column", sm: "row" }}
@@ -261,7 +283,10 @@ export function MovieDetailPage() {
         spacing={2}
         sx={{ mb: 2 }}
       >
-        <Typography variant="h5">Showtimes</Typography>
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <LocalActivityOutlinedIcon color="primary" />
+          <Typography variant="h5">Showtimes</Typography>
+        </Stack>
         <Stack
           direction={{ xs: "column", sm: "row" }}
           spacing={1}
@@ -352,44 +377,58 @@ export function MovieDetailPage() {
           </CardContent>
         </Card>
       )}
-      {showsByTheatre.map(([theatre, theatreShows]) => (
-        <Card key={theatre} sx={{ mb: 2 }}>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              {theatre}
-            </Typography>
-            <Stack direction="row" flexWrap="wrap" gap={1}>
-              {theatreShows.map((show) => (
-                <Button
-                  key={show.id}
-                  variant="outlined"
-                  onClick={() => navigate(`/shows/${show.id}/seats`)}
-                >
-                  {new Date(show.startTime).toLocaleString([], {
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                  {" · "}
-                  {show.screenName}
-                  {" · "}
-                  {show.format}
-                  {" · "}
-                  {show.language}
-                </Button>
-              ))}
-            </Stack>
-          </CardContent>
-        </Card>
-      ))}
+      {/* A grid of narrower cards, not one full-width card per theatre —
+          a theatre with only one or two showtimes used to sit in a card
+          spanning the whole page width, leaving a large empty void next
+          to a single small button (the specific "doesn't look good"
+          complaint this replaced). Buttons stack vertically and go
+          full-width within each card, which reads better at this
+          narrower size than the old wrapped horizontal row. */}
+      <Grid container spacing={2}>
+        {showsByTheatre.map(([theatre, theatreShows]) => (
+          <Grid item xs={12} sm={6} md={4} key={theatre}>
+            <Card sx={{ height: "100%" }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  {theatre}
+                </Typography>
+                <Stack spacing={1}>
+                  {theatreShows.map((show) => (
+                    <Button
+                      key={show.id}
+                      variant="outlined"
+                      fullWidth
+                      sx={{ justifyContent: "flex-start", textAlign: "left" }}
+                      onClick={() => navigate(`/shows/${show.id}/seats`)}
+                    >
+                      {new Date(show.startTime).toLocaleString([], {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                      {" · "}
+                      {show.screenName}
+                      {" · "}
+                      {show.format}
+                      {" · "}
+                      {show.language}
+                    </Button>
+                  ))}
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
 
       <Divider sx={{ my: 4 }} />
 
-      <Typography variant="h5" gutterBottom>
-        Ratings & Reviews
-      </Typography>
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+        <RateReviewOutlinedIcon color="primary" />
+        <Typography variant="h5">Ratings & Reviews</Typography>
+      </Stack>
 
       {user && (
         <Card sx={{ mb: 3 }}>
@@ -455,16 +494,23 @@ export function MovieDetailPage() {
         </Card>
       )}
 
-      <List>
+      <Stack spacing={1.5}>
         {shownRatings.map((r) => {
           const isOwnReview = !!user && user.id === r.userId;
           const isRevealed = revealedSpoilers[r.id];
           return (
-            <ListItem key={r.id} alignItems="flex-start" divider sx={{ display: "block", py: 1.5 }}>
-              <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
-                <Typography fontWeight={600}>{r.userName}</Typography>
-                <Rating value={r.stars} size="small" readOnly />
-                {r.isSpoiler && <Chip label="Spoiler" size="small" color="warning" variant="outlined" />}
+            <Paper key={r.id} variant="outlined" sx={{ p: 2 }}>
+              <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1 }}>
+                <Avatar sx={{ bgcolor: "primary.main", width: 36, height: 36, fontSize: "0.9rem" }}>
+                  {r.userName.charAt(0).toUpperCase()}
+                </Avatar>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography fontWeight={600} noWrap>
+                    {r.userName}
+                  </Typography>
+                  <Rating value={r.stars} size="small" readOnly />
+                </Box>
+                {r.isSpoiler && <Chip label="Spoiler" size="small" color="warning" variant="outlined" sx={{ ml: "auto" }} />}
               </Stack>
 
               {r.comment && r.isSpoiler && !isRevealed ? (
@@ -529,13 +575,13 @@ export function MovieDetailPage() {
                   </Typography>
                 </Stack>
               )}
-            </ListItem>
+            </Paper>
           );
         })}
         {ratingsData?.total === 0 && (
           <Typography color="text.secondary">No ratings yet — be the first!</Typography>
         )}
-      </List>
+      </Stack>
 
       {hasMoreRatings && (
         <Button onClick={() => setRatingsPage((p) => p + 1)} sx={{ mt: 1 }}>
@@ -546,9 +592,10 @@ export function MovieDetailPage() {
       {similarMovies && similarMovies.length > 0 && (
         <>
           <Divider sx={{ my: 4 }} />
-          <Typography variant="h5" gutterBottom>
-            You might also like
-          </Typography>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+            <RecommendOutlinedIcon color="primary" />
+            <Typography variant="h5">You might also like</Typography>
+          </Stack>
           <Grid container spacing={{ xs: 2, sm: 3 }}>
             {similarMovies.map((similar) => (
               <Grid item xs={6} sm={4} md={3} lg={2.4} key={similar.id}>

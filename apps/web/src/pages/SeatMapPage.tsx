@@ -27,6 +27,9 @@ import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
 import LocalActivityOutlinedIcon from "@mui/icons-material/LocalActivityOutlined";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import FastfoodOutlinedIcon from "@mui/icons-material/FastfoodOutlined";
+import LocalPizzaOutlinedIcon from "@mui/icons-material/LocalPizzaOutlined";
+import LocalBarOutlinedIcon from "@mui/icons-material/LocalBarOutlined";
+import RamenDiningOutlinedIcon from "@mui/icons-material/RamenDiningOutlined";
 import AddIcon from "@mui/icons-material/Add";
 import RemoveIcon from "@mui/icons-material/Remove";
 import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
@@ -357,68 +360,101 @@ export function SeatMapPage() {
           {heldSeats.length > 0 && foodItems && foodItems.length > 0 && (
             <Card sx={{ mt: 3 }}>
               <CardContent>
-                <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2.5 }}>
                   <FastfoodOutlinedIcon color="secondary" />
                   <Typography variant="h6">Food & Beverages</Typography>
                 </Stack>
                 <Stack spacing={3}>
                   {(["SNACK", "DRINK", "COMBO"] as const)
                     .filter((category) => foodItemsByCategory[category]?.length)
-                    .map((category) => (
-                      <Box key={category}>
-                        <Typography variant="overline" color="text.secondary">
-                          {category === "SNACK" ? "Snacks" : category === "DRINK" ? "Drinks" : "Combos"}
-                        </Typography>
-                        <Stack spacing={1.5} sx={{ mt: 1 }}>
-                          {foodItemsByCategory[category].map((item) => (
-                            <Stack
-                              key={item.id}
-                              direction="row"
-                              alignItems="center"
-                              justifyContent="space-between"
-                              spacing={2}
-                              flexWrap="wrap"
-                            >
-                              <Box sx={{ minWidth: 180 }}>
-                                <Typography variant="body1">{item.name}</Typography>
-                                {item.description && (
-                                  <Typography variant="body2" color="text.secondary">
-                                    {item.description}
-                                  </Typography>
-                                )}
-                                <Typography variant="body2" color="text.secondary">
-                                  ₹{item.price}
-                                </Typography>
-                              </Box>
-                              <Stack direction="row" alignItems="center" spacing={1}>
-                                <IconButton
-                                  size="small"
-                                  onClick={() => updateFoodQty(item.id, -1)}
-                                  disabled={(foodQuantities[item.id] ?? 0) === 0}
-                                  aria-label={`Decrease ${item.name} quantity`}
-                                >
-                                  <RemoveIcon fontSize="small" />
-                                </IconButton>
-                                <Typography sx={{ width: 24, textAlign: "center" }}>
-                                  {foodQuantities[item.id] ?? 0}
-                                </Typography>
-                                <IconButton
-                                  size="small"
-                                  onClick={() => updateFoodQty(item.id, 1)}
-                                  disabled={(foodQuantities[item.id] ?? 0) >= 20}
-                                  aria-label={`Increase ${item.name} quantity`}
-                                >
-                                  <AddIcon fontSize="small" />
-                                </IconButton>
-                              </Stack>
-                            </Stack>
-                          ))}
-                        </Stack>
-                      </Box>
-                    ))}
+                    .map((category) => {
+                      const CategoryIcon =
+                        category === "SNACK"
+                          ? LocalPizzaOutlinedIcon
+                          : category === "DRINK"
+                            ? LocalBarOutlinedIcon
+                            : RamenDiningOutlinedIcon;
+                      return (
+                        <Box key={category}>
+                          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: 1.5 }}>
+                            <CategoryIcon fontSize="small" color="secondary" />
+                            <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1 }}>
+                              {category === "SNACK" ? "Snacks" : category === "DRINK" ? "Drinks" : "Combos"}
+                            </Typography>
+                          </Stack>
+                          <Grid container spacing={1.5}>
+                            {foodItemsByCategory[category].map((item) => {
+                              const qty = foodQuantities[item.id] ?? 0;
+                              return (
+                                <Grid item xs={12} sm={6} md={4} key={item.id}>
+                                  <Paper
+                                    variant="outlined"
+                                    sx={{
+                                      p: 1.5,
+                                      height: "100%",
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      borderColor: qty > 0 ? "secondary.main" : "divider",
+                                      bgcolor: qty > 0 ? "action.hover" : "transparent",
+                                      transition: "border-color 150ms ease, background-color 150ms ease",
+                                    }}
+                                  >
+                                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                                      <Typography variant="body1" fontWeight={600}>
+                                        {item.name}
+                                      </Typography>
+                                      <Chip label={`₹${item.price}`} size="small" color="secondary" variant="outlined" />
+                                    </Stack>
+                                    {item.description && (
+                                      <Typography
+                                        variant="body2"
+                                        color="text.secondary"
+                                        sx={{
+                                          mt: 0.5,
+                                          flexGrow: 1,
+                                          display: "-webkit-box",
+                                          WebkitLineClamp: 2,
+                                          WebkitBoxOrient: "vertical",
+                                          overflow: "hidden",
+                                        }}
+                                      >
+                                        {item.description}
+                                      </Typography>
+                                    )}
+                                    <Stack direction="row" alignItems="center" justifyContent="flex-end" spacing={1} sx={{ mt: 1.5 }}>
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => updateFoodQty(item.id, -1)}
+                                        disabled={qty === 0}
+                                        aria-label={`Decrease ${item.name} quantity`}
+                                        sx={{ border: "1px solid", borderColor: "divider" }}
+                                      >
+                                        <RemoveIcon fontSize="small" />
+                                      </IconButton>
+                                      <Typography sx={{ width: 24, textAlign: "center" }} fontWeight={600}>
+                                        {qty}
+                                      </Typography>
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => updateFoodQty(item.id, 1)}
+                                        disabled={qty >= 20}
+                                        aria-label={`Increase ${item.name} quantity`}
+                                        sx={{ border: "1px solid", borderColor: "divider" }}
+                                      >
+                                        <AddIcon fontSize="small" />
+                                      </IconButton>
+                                    </Stack>
+                                  </Paper>
+                                </Grid>
+                              );
+                            })}
+                          </Grid>
+                        </Box>
+                      );
+                    })}
                 </Stack>
                 {foodTotal > 0 && (
-                  <Stack direction="row" justifyContent="flex-end" sx={{ mt: 2 }}>
+                  <Stack direction="row" justifyContent="flex-end" sx={{ mt: 2.5 }}>
                     <Typography variant="subtitle2" color="secondary.main">
                       Food total: ₹{foodTotal}
                     </Typography>

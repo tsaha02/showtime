@@ -138,37 +138,53 @@ export function SeatMapGrid({ showId, seats, prices }: SeatMapGridProps) {
         </Typography>
       </Stack>
 
-      <Stack spacing={1} alignItems="center" sx={{ overflowX: "auto", pb: 2 }}>
-        {rows.map(({ rowKey, cells }) => (
-          <Stack
-            key={rowKey}
-            direction="row"
-            spacing={0.75}
-            alignItems="center"
-          >
-            <Typography
-              variant="caption"
-              sx={{ width: 20, color: "text.secondary" }}
-            >
-              {String.fromCharCode(65 + rowKey)}
-            </Typography>
-            {cells.map((seat, col) =>
-              seat ? (
-                <SeatCell key={seat.id} seat={seat} onClick={handleClick} />
-              ) : (
-                <Box key={`gap-${col}`} sx={{ width: 32, height: 32 }} />
-              ),
-            )}
-          </Stack>
-        ))}
-      </Stack>
+      {/* `alignItems: "center"` on THIS scrolling container, on a row
+          wider than the viewport, is a classic CSS trap: a flex/grid
+          child centered inside an `overflow: auto` ancestor starts
+          scrolled to a position that already clips its left edge —
+          the row is symmetrically centered around the container's
+          full (unscrolled) width, not left-aligned at `scrollLeft: 0`
+          — so the first seat/row-letter is cut off before the user
+          even touches the scrollbar, exactly the "cut off" report this
+          fixes. Centering now happens on an inner `width: fit-content`
+          Box instead: that collapses to a plain left-aligned block
+          (reachable in full by scrolling) the moment its natural width
+          exceeds the scroll container, while still centering normally
+          whenever it fits (desktop, most phones in landscape). */}
+      <Box sx={{ overflowX: "auto", pb: 2 }}>
+        <Stack spacing={1} sx={{ width: "fit-content", mx: "auto" }}>
+          {rows.map(({ rowKey, cells }) => (
+            <Stack key={rowKey} direction="row" spacing={0.75} alignItems="center">
+              <Typography variant="caption" sx={{ width: 20, color: "text.secondary" }}>
+                {String.fromCharCode(65 + rowKey)}
+              </Typography>
+              {cells.map((seat, col) =>
+                seat ? (
+                  <SeatCell key={seat.id} seat={seat} onClick={handleClick} />
+                ) : (
+                  <Box key={`gap-${col}`} sx={{ width: 32, height: 32 }} />
+                ),
+              )}
+            </Stack>
+          ))}
+        </Stack>
+      </Box>
 
-      <Stack
-        direction="row"
-        spacing={3}
-        justifyContent="center"
-        flexWrap="wrap"
-        sx={{ mt: 3 }}
+      {/* A plain flexWrap row centers each WRAPPED LINE independently,
+          so rows with different total widths end up staggered relative
+          to each other (a lopsided "staircase") instead of reading as
+          one aligned block — a `grid` with a fixed column count doesn't
+          have that problem, since every row shares the same column
+          positions. */}
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "repeat(2, auto)", sm: "repeat(3, auto)", md: "repeat(5, auto)" },
+          columnGap: 3,
+          rowGap: 1,
+          justifyContent: "center",
+          mt: 3,
+        }}
       >
         <LegendItem color="transparent" border label="Available" />
         <LegendItem color="primary.main" label="Selected (your hold)" />
@@ -180,14 +196,17 @@ export function SeatMapGrid({ showId, seats, prices }: SeatMapGridProps) {
             Wheelchair accessible
           </Typography>
         </Stack>
-      </Stack>
+      </Box>
 
-      <Stack
-        direction="row"
-        spacing={1}
-        justifyContent="center"
-        flexWrap="wrap"
-        sx={{ mt: 2 }}
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "repeat(2, auto)", sm: "repeat(4, auto)" },
+          columnGap: 1,
+          rowGap: 1,
+          justifyContent: "center",
+          mt: 2,
+        }}
       >
         {(Object.keys(prices) as SeatCategory[]).map((category) => (
           <Chip
@@ -197,7 +216,7 @@ export function SeatMapGrid({ showId, seats, prices }: SeatMapGridProps) {
             sx={{ bgcolor: CATEGORY_COLORS[category], color: "#000" }}
           />
         ))}
-      </Stack>
+      </Box>
     </Box>
   );
 }

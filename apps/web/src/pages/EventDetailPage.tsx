@@ -217,38 +217,49 @@ export function EventDetailPage() {
           </CardContent>
         </Card>
       )}
-      {sessionsByTheatre.map(([theatre, theatreSessions]) => (
-        <Card key={theatre} sx={{ mb: 2 }}>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              {theatre}
-            </Typography>
-            <Stack direction="row" flexWrap="wrap" gap={1}>
-              {theatreSessions.map((session) => (
-                <Button
-                  key={session.id}
-                  variant="outlined"
-                  onClick={() => navigate(`/shows/${session.id}/seats`)}
-                >
-                  {new Date(session.startTime).toLocaleString([], {
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                  {" · "}
-                  {session.screenName}
-                  {" · "}
-                  {session.format}
-                  {" · "}
-                  {session.language}
-                </Button>
-              ))}
-            </Stack>
-          </CardContent>
-        </Card>
-      ))}
+      {/* A grid of narrower cards, not one full-width card per theatre —
+          see the identical fix on MovieDetailPage for why: a theatre
+          with only one or two sessions used to sit in a card spanning
+          the whole page width, leaving a large empty void next to a
+          single small button. */}
+      <Grid container spacing={2}>
+        {sessionsByTheatre.map(([theatre, theatreSessions]) => (
+          <Grid item xs={12} sm={6} md={4} key={theatre}>
+            <Card sx={{ height: "100%" }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  {theatre}
+                </Typography>
+                <Stack spacing={1}>
+                  {theatreSessions.map((session) => (
+                    <Button
+                      key={session.id}
+                      variant="outlined"
+                      fullWidth
+                      sx={{ justifyContent: "flex-start", textAlign: "left" }}
+                      onClick={() => navigate(`/shows/${session.id}/seats`)}
+                    >
+                      {new Date(session.startTime).toLocaleString([], {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                      {" · "}
+                      {session.screenName}
+                      {" · "}
+                      {session.format}
+                      {" · "}
+                      {session.language}
+                    </Button>
+                  ))}
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
     </Box>
   );
 }
