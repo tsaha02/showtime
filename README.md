@@ -1,0 +1,821 @@
+# ShowTime
+
+A scoped-down, BookMyShow-style movie ticket booking platform, built as a
+portfolio project to demonstrate production-style concurrency handling in
+a real-time seat-booking flow — plus hands-on use of Redux Toolkit,
+Material-UI, Redis, Socket.io, and a Turborepo monorepo.
+
+Browse movies and showtimes, watch a live seat map update as other people
+select seats, hold and book seats (solo or as a group), check out as a
+guest or a logged-in user, and rate movies after watching them. A separate
+admin panel manages the catalog (movies, theatres, screens, seat layouts,
+shows, pricing) and moderates bookings/ratings.
+
+**The centerpiece of this project is the booking flow's race-condition
+handling** — see [Race-condition handling](#race-condition-handling-the-centerpiece)
+below, and [INTERVIEW_NOTES.md](./INTERVIEW_NOTES.md) for the deep dive.
+
+---
+
+## Architecture
+
+```
+                        ┌─────────────────┐
+                        │   apps/web       │  React + Redux Toolkit + MUI
+                        │  (customer app)  │  Socket.io-client
+                        │  :5173           │
+                        └────────┬─────────┘
+                                 │  HTTP (cookies) + WebSocket
+                        ┌────────▼─────────┐        ┌──────────────────┐
+                        │    apps/api      │◄──────►│   apps/admin     │
+                        │  Express + TS    │  HTTP  │  (admin panel)   │
+                        │  :4000           │        │  :5174           │
+                        └───┬─────────┬────┘        └──────────────────┘
+                            │         │
+                somes writes│         │seat locks, socket adapter, cache
+                            ▼         ▼
+                    ┌───────────┐ ┌──────────┐
+                    │ PostgreSQL│ │  Redis   │
+                    │ (source   │ │ (fast    │
+                    │  of truth)│ │  path)   │
+                    └───────────┘ └──────────┘
+```
+
+One Express process, one Postgres database, one Redis instance, three
+frontends. No Kubernetes, no microservices, no message queue, no GraphQL —
+deliberately kept to a size one engineer can hold in their head and
+explain end-to-end.
+
+### Why Socket.io + the Redis adapter specifically
+
+The seat map needs to update live across every browser looking at the same
+show, without polling. Socket.io gives us rooms (`show:{showId}`) for
+free. The `@socket.io/redis-adapter` is what makes `io.to(room).emit(...)`
+correct if this API ever ran as **more than one Node process** (e.g.
+behind a load balancer): Socket.io's default in-memory adapter only knows
+about sockets connected to *that* process, so a seat held on the instance
+serving client A would never reach client B if B's WebSocket happened to
+land on a different instance. The adapter republishes room broadcasts
+through Redis pub/sub so every instance's sockets receive them. This repo
+runs a single API instance locally, so the adapter isn't load-bearing
+today — it's there so the real-time layer is horizontally scalable
+without a rewrite, and it's an easy, honest thing to point at in an
+interview as "here's the one line that makes this scale out."
+
+---
+
+## Monorepo structure
+
+```
+apps/
+  web/      customer app — React + TS + Vite + MUI + Redux Toolkit + socket.io-client
+  admin/    admin panel — separate React + TS + Vite + MUI app, own login/cookie
+  api/      Express + TS + Prisma/Postgres + ioredis + Socket.io
+packages/
+  shared/   TypeScript types, Zod schemas, and constants shared by all three apps
+            (seat categories, booking status enums, socket event names, API DTOs)
+```
+
+Turborepo + npm workspaces. Each app has its own `package.json` and `.env`
+and can run standalone (`npm run dev --workspace=apps/api`) or all
+together (`npm run dev` at the root, via `turbo run dev`).
+
+---
+
+## Database schema
+
+```
+User ──< Booking >── Show ──< ShowSeatPrice
+  │         │           │
+  │         │           └── Screen ── SeatLayout ──< Seat
+  │         │                  │                       │
+  │         └──< BookingSeat >─┘                       │
+  │                    └───────────────────────────────┘
+  └──< Rating >── Movie ──< Show
+```
+
+- **Movie / Theatre / Screen / SeatLayout / Seat** — the read-only catalog
+  customers browse; only the admin app can write it.
+- **`Seat.row`/`Seat.col` vs `Seat.label`** — deliberately decoupled. `row`
+  and `col` are the seat's position in the physical grid (used only for
+  rendering); `label` (e.g. `"A12"`) is the human-readable seat number
+  shown everywhere else (booking confirmations, receipts). This lets a
+  screen's layout have gaps — aisles, missing seats, a narrower back row
+  of recliners — without needing a dense rectangular array. The seed data
+  (`apps/api/prisma/seed.ts`) generates a layout with a real center-aisle
+  gap (column 5 is skipped on every row) while seat labels stay a dense
+  `A1..A9` sequence per row, to make the distinction concrete rather than
+  theoretical.
+- **`ShowSeatPrice`** — price is per-show-per-category, not fixed on
+  `Seat`. The same physical seat can cost differently across shows
+  (weekday vs weekend, blockbuster vs matinee).
+- **`Booking` / `BookingSeat`** — see the next section; this is the whole
+  point of the project.
+- **`Rating`** — one per `(movieId, userId)`; eligibility (must hold a
+  `CONFIRMED` booking for a `Show` of that movie whose `endTime` has
+  passed) is enforced server-side in `ratings.routes.ts`, not just hidden
+  in the UI.
+- **`Movie.averageRating`** is computed **on read** (a Prisma `aggregate`
+  query per movie), not stored and recomputed on write. At this project's
+  scale that's a trivial query and it's always exactly correct — there's
+  no denormalized value that can drift. A production system with heavy
+  read traffic would flip this to recompute-and-store on write (or a
+  periodic job), trading a small write-time cost for O(1) reads. See the
+  comment on `toMovieDTO` in `apps/api/src/services/movieService.ts`.
+
+**ORM choice: Prisma.** A raw-`pg`-and-hand-written-SQL approach was
+considered (and would work fine for the transactional logic specifically —
+see below), but Prisma's `$transaction` API keeps the one transaction that
+actually matters (booking confirmation) just as explicit while keeping the
+admin CRUD routes short. The trade-off: Prisma's schema language doesn't
+support partial/filtered unique indexes, which shaped how seat-release-on-
+cancellation is modeled (see below) — a deliberate, documented design
+choice rather than a limitation worked around silently.
+
+---
+
+## Race-condition handling (the centerpiece)
+
+Two independent layers guard against double-booking a seat. They exist
+for **different reasons** and understanding why both are needed — not
+just what they do — is the point.
+
+### Layer 1: the Redis seat hold (the fast path)
+
+Selecting a seat attempts:
+
+```
+SET seat:{showId}:{seatId} {sessionId} NX EX 300
+```
+
+`sessionId` is a UUID the frontend generates once per browser tab
+(independent of login, so guests can hold seats too) and persists in
+`localStorage`. `NX` means "only set if it doesn't already exist" — so
+only one session can ever hold a given seat at a time, atomically, as a
+single Redis command. `EX 300` gives the hold a 5-minute TTL, so an
+abandoned hold (someone closes the tab) cleans itself up with no cron job
+or background sweep needed.
+
+If the key already exists, we check whether *we* own it (re-clicking a
+seat you already hold just extends the TTL) — otherwise the request is
+rejected with a 409 and a clear "someone else is holding this seat"
+message, before any database work happens. This is what makes the seat
+map feel instant and correct: under normal operation, two users literally
+cannot both select the same seat.
+
+A successful hold broadcasts `seat:held` to everyone else viewing that
+show (Socket.io room `show:{showId}`), so their seat map greys the seat
+out live, with no refresh. Releasing (explicitly, or implicitly via TTL
+expiry — the frontend shows a countdown so the user always knows their
+window) broadcasts `seat:released`.
+
+**Why Redis and not, say, an in-memory `Map`?** Because `SET NX EX` gives
+us atomic acquire-with-expiry as a single operation for free, and because
+the Socket.io Redis adapter (see above) means this same mechanism keeps
+working correctly if the API ever scales to more than one process — an
+in-memory map would silently stop being a real lock the moment there's a
+second Node instance.
+
+### Layer 2: the Postgres unique constraint (the actual guarantee)
+
+Redis holds are **advisory and best-effort**. In every one of these cases,
+Redis alone could let two "confirm" requests both believe they're clear to
+book the same seat:
+
+- Redis restarts (the lock is lost; the booking data in Postgres is not).
+- A hold's 5-minute TTL expires because a slow guest checkout took 6
+  minutes — the confirm step must detect this, not silently proceed (see
+  below).
+- In a scaled-out deployment, a brief network partition lets two
+  instances momentarily disagree about lock state.
+
+`BookingSeat` has `@@unique([showId, seatId])`. A row in this table means,
+unconditionally, "this seat, on this show, is booked" — full stop, no
+status column to check. `confirmBooking()`
+(`apps/api/src/services/bookingService.ts`) does the whole booking as ONE
+Postgres transaction:
+
+1. Re-validate that every seat in the cart is **still** held by this
+   session's Redis lock (`checkHoldsOwnedBy`). If not — a hold expired
+   mid-checkout, or another tab released it — this fails fast with a 409
+   *before touching Postgres at all*, and reports exactly which seat IDs
+   are the problem.
+2. Payment is verified — real (TEST MODE) Stripe if `STRIPE_SECRET_KEY`
+   is configured, otherwise the original mock (see "Payment: real Stripe
+   test mode, with a mocked fallback" below for the full design). Either
+   way, a failure here throws *before* the transaction starts — no trace
+   is left in the database, and the seat holds are **not** released, so
+   the user can immediately retry payment on the same held seats, exactly
+   like a real gateway decline.
+3. Inside `prisma.$transaction(...)`: insert one `Booking` row, then
+   `bookingSeat.createMany(...)` for every seat in the cart. `createMany`
+   fails as a **single statement** if *any* row violates the unique
+   constraint — Postgres will not insert 3 of 4 seats and silently skip
+   the 4th. This all-or-nothing behavior is exactly what makes **group
+   bookings** atomic: a 4-seat group booking either reserves all 4 seats
+   or none of them; there is no partial state, ever. A booking is capped
+   at `MAX_SEATS_PER_BOOKING` (10, `packages/shared/src/constants.ts`) —
+   enforced by `confirmBookingSchema`'s `.max()` (the actual guarantee)
+   and mirrored client-side in `SeatMapGrid.tsx` (stops a click at the
+   11th seat with a clear message, rather than only failing at checkout).
+4. If the transaction fails with Postgres error `P2002` (unique
+   violation), the whole thing rolls back automatically, and the code
+   queries which seat IDs are already taken so the 409 response can name
+   them specifically ("one or more selected seats were just booked by
+   someone else").
+5. Only after the transaction **commits** do we touch Redis (release the
+   holds) and Socket.io (broadcast `seat:booked` and `booking:confirmed`).
+   The database is updated first, always — the real-time layer only ever
+   announces something that has already durably happened.
+
+**Why not just trust Redis?** Because the unique constraint is enforced
+by Postgres's storage layer itself, atomically, regardless of what either
+concurrent transaction's application code believed a moment earlier — it
+doesn't matter whether Redis was down, slow, or simply never asked. It is
+the one thing in this whole system that is *unconditionally* true.
+
+**What happens if two users click "confirm" on overlapping seats at
+nearly the same instant?** Under normal operation this can't actually
+happen for the *same* seat — Redis's `NX` guarantees only one session ever
+holds a given seat, so the second person's *hold* attempt (not their
+confirm) is rejected up front with a friendly message, long before either
+reaches "confirm". The scenario the unique constraint exists for is
+exactly the case where Redis *can't* prevent it (down, restarted, or a
+race with a TTL) — see `apps/api/scripts/race-test.ts`, a standalone
+script that deliberately bypasses the Redis check and fires two
+concurrent transactions at the identical `(showId, seatId)` directly, to
+prove the database constraint alone is sufficient. Run it:
+
+```bash
+cd apps/api
+npx tsx scripts/race-test.ts redis   # proves the Redis NX-lock layer: one acquires, one is rejected
+npx tsx scripts/race-test.ts db      # proves the Postgres unique-constraint layer, Redis bypassed entirely
+```
+
+**What happens if a hold expires mid-checkout?** `checkHoldsOwnedBy` runs
+first, before the transaction — a session whose hold TTL ran out gets a
+409 ("your hold on one or more seats has expired, please reselect") and
+nothing is written to the database. You can reproduce this manually:
+
+```bash
+# 1. hold a seat normally via POST /api/seats/hold
+# 2. delete its Redis key directly, simulating expiry:
+redis-cli del "seat:<showId>:<seatId>"
+# 3. POST /api/bookings/confirm with that seat — 409, no DB row created
+```
+
+### Why cancellation doesn't need a partial/filtered unique index
+
+`Booking.status` can become `CANCELLED` (a user cancelling their own
+confirmed booking). A seat that was booked and then cancelled must become
+bookable again. The obvious-looking design — add a `status` column to
+`BookingSeat` and a unique index scoped to `WHERE status = 'CONFIRMED'` —
+isn't expressible in Prisma's schema language (no partial/filtered
+indexes), and would require hand-editing generated SQL migrations to
+maintain.
+
+Instead: **cancelling a booking deletes its `BookingSeat` rows** (inside
+the same transaction that flips `Booking.status` to `CANCELLED`) — that
+deletion *is* the seat-release mechanism. The plain `@@unique([showId,
+seatId])` constraint is then sufficient on its own: a row's mere existence
+means "booked", so removing the row means "not booked", with no status
+value to reason about. Booking **history** (what was booked, at what
+price) is preserved separately via an immutable `seatsSnapshot` JSON
+column on `Booking`, written once at booking time and never touched by
+cancellation — so a cancelled booking still shows its original seats on a
+receipt/history view, even though the live `BookingSeat` rows are gone.
+
+---
+
+## Guest checkout
+
+A `Booking` belongs to **either** a `userId` **or** a `guestName`/
+`guestEmail`, never both, never neither — enforced in
+`confirmBooking()` (not just at the schema level, since Prisma can't
+express an XOR constraint declaratively). Guests provide name + email
+(+ optional phone) at the confirm step instead of logging in, and receive
+a human-readable reference code (e.g. `SHOW-8F3K2Q`, generated in
+`utils/bookingRef.ts`) which they can later use with their email on the
+"Find my booking" page (`POST /api/bookings/find`) — deliberately returns
+the same 404 whether the reference doesn't exist or the email doesn't
+match, so the endpoint can't be used to enumerate valid reference codes or
+confirm which email a booking belongs to. Guests can never rate movies —
+the ratings endpoint requires the customer auth cookie, so there is no
+code path from "guest" to "rating" at all, not just a hidden button.
+
+---
+
+## API reference
+
+Base URL: `http://localhost:4000`. All state-changing requests from a
+browser need `credentials: "include"` (cookies) and, for seat-hold/
+booking endpoints, an `X-Session-Id` header (a client-generated UUID,
+independent of login — see Layer 1 above).
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `/api/auth/register` | — | `{name,email,password,confirmPassword}` → sets `st_customer_token` cookie |
+| POST | `/api/auth/login` | — | `{email,password}` |
+| POST | `/api/auth/logout` | — | clears cookie |
+| GET | `/api/auth/me` | customer cookie | current user (includes `emailVerified`) |
+| POST | `/api/auth/verify-email` | — | `{email,otp}` → 204, or 400 if wrong/expired |
+| POST | `/api/auth/resend-otp` | — | `{email}` → always 204 (doesn't reveal account state) |
+| POST | `/api/auth/forgot-password` | — | `{email}` → always 204 (doesn't reveal account state) |
+| POST | `/api/auth/reset-password` | — | `{email,otp,newPassword,confirmNewPassword}` → `{user}` + sets session cookie, or 400 if wrong/expired |
+| GET | `/api/movies?search=&genre=&city=&bookable=` | — | catalog list; `bookable=true` narrows to movies with an upcoming show — the "Now Showing" page uses this, plain `/api/movies` (no flag) returns the WHOLE catalog including unscheduled titles |
+| GET | `/api/movies/genres` | — | distinct genre list, for the filter dropdown |
+| GET | `/api/movies/discover?query=` | — (rate-limited) | live OMDb search — browse ANY real movie, not just ShowTime's own catalog — see "Search Movies vs Now Showing" below |
+| GET | `/api/movies/discover/trending` | — (rate-limited) | a fixed slice of real, curated titles resolved through OMDb (cached 6h) — default view before a search is typed |
+| GET | `/api/movies/discover/:externalId` | — (rate-limited) | OMDb details (incl. director/cast/awards/language/country/rated) + IMDb rating + whether this title is bookable in ShowTime |
+| GET | `/api/movies/:id` | — | movie detail incl. average rating |
+| GET | `/api/movies/:id/shows?city=` | — | upcoming shows for a movie, optionally narrowed to one city (carries a previously-selected city into the movie detail page) |
+| GET | `/api/movies/:id/ratings?page=` | — | paginated reviews + star-count distribution |
+| GET | `/api/theatres` | — | theatre list |
+| GET | `/api/theatres/cities` | — | distinct **serviceable** city list (cities ShowTime actually has theatres in) |
+| GET | `/api/locations/india-cities` | — (rate-limited) | ~4,267 real Indian cities/towns, for the city picker's search box — see below |
+| GET | `/api/locations/reverse-geocode?lat=&lon=` | — (rate-limited) | resolves browser geolocation coordinates to a city name |
+| GET | `/api/shows/:showId/seatmap` | X-Session-Id | live seat statuses + per-category prices |
+| POST | `/api/seats/hold` | X-Session-Id | `{showId,seatId}` → 409 if taken |
+| POST | `/api/seats/release` | X-Session-Id | `{showId,seatId}` |
+| POST | `/api/bookings/create-payment-intent` | X-Session-Id | `{showId,seatIds}` → real Stripe PaymentIntent, or `{stripeConfigured:false}` if unconfigured |
+| POST | `/api/bookings/confirm` | X-Session-Id (+ optional cookie) | the transaction — see above |
+| GET | `/api/bookings/mine` | customer cookie | booking history |
+| POST | `/api/bookings/find` | — | `{reference,email}` guest lookup |
+| POST | `/api/bookings/:id/cancel` | customer cookie, owner only | frees the seats |
+| POST | `/api/ratings` | customer cookie | eligibility enforced server-side |
+| POST/GET/PUT/DELETE | `/api/admin/*` | admin cookie (`st_admin_token`), role ADMIN | full catalog + booking/rating moderation CRUD — see `apps/api/src/routes/admin/` |
+| GET | `/api/admin/external-movies/search?query=` | admin cookie | proxies OMDb search — see below |
+| POST | `/api/admin/external-movies/import` | admin cookie | `{externalId}` → creates/updates a local `Movie` from OMDb data |
+| POST | `/api/admin/external-movies/bulk-import` | admin cookie | resolves ~65 curated real titles through OMDb in one request — see below |
+| GET | `/api/admin/theatre-discovery/search?city=` | admin cookie | real cinema locations from OpenStreetMap — see below |
+| POST | `/api/admin/theatre-discovery/import` | admin cookie | `{osmId,name,address,city}` → creates a local `Theatre` (+2 screens) from a real OSM location |
+| POST | `/api/admin/shows/auto-schedule` | admin cookie | `{movieIds}` → fast bulk scheduling across screens with no upcoming show — see below |
+
+Socket.io events (room `show:{showId}`, joined via client emit
+`"show:join"` with the showId): `seat:held`, `seat:released`,
+`seat:booked`, `booking:confirmed`.
+
+All error bodies: `{error: string, message: string, details?}`. Status
+codes: 400 validation, 401 not authenticated, 403 not authorized /
+ineligible, 404 not found, **409 the seat/hold conflict cases above**, 402
+mocked payment decline, 500 unexpected.
+
+---
+
+## Real movie data, location filtering, e-tickets, and email
+
+Additions layered onto the original design after review feedback that
+(correctly) pointed out the catalog was all placeholder data, there was
+no way to browse "what's near me," bookings had no physical artifact, and
+signup had no real email verification.
+
+### Real movie data via OMDb (admin-side import, not a live dependency)
+
+Movies are still **admin-authored, local `Movie` rows** — that doesn't
+change, and it matters: bookings, ratings, and pricing all have foreign
+keys into `Movie.id`, so the catalog has to be something *we* own, not a
+live pass-through to a third party (an external catalog can rename,
+rate-limit, or go unreachable — none of that should ever be able to break
+an existing booking's history).
+
+What changes is *how an admin populates a movie*: alongside the existing
+manual create/edit form, `apps/admin` has an "Import Movie" flow
+(`apps/api/src/services/externalMovieService.ts`,
+`apps/api/src/routes/admin/externalMovies.routes.ts`, mounted at
+`/api/admin/external-movies`). An admin searches by title, picks a real
+result, and the API fetches that title's real overview/poster/runtime/
+genre and **upserts** a local `Movie` row keyed on a `Movie.externalId`
+column (nullable + unique — null for hand-entered movies, set for
+imported ones, unique so re-importing the same title updates rather than
+duplicates it). From that point on, it's an ordinary local `Movie` row:
+editable, bookable, ratable, exactly like a hand-typed one.
+
+**This project switched providers once already** (TMDB → OMDb, when TMDB
+access turned out unreliable from this deployment's network) with zero
+customer-facing impact, specifically *because* the module/route/column
+naming was kept provider-agnostic (`externalMovieService.ts`,
+`/api/admin/external-movies`, `Movie.externalId` — never `tmdbService`/
+`Movie.tmdbId`). That's a deliberate lesson worth stating plainly: name
+an integration point after the *role* it plays, not the vendor
+implementing it today, and a provider swap stays a two-file change
+instead of a search-and-replace across the app.
+
+Requires a free OMDb API key (`OMDB_API_KEY` in `apps/api/.env`, from
+omdbapi.com/apikey.aspx — free, emailed instantly). Without one, the
+import feature returns a clear 500 rather than the app failing to boot;
+nothing else in the app depends on it. OMDb quirks worth knowing if you
+extend this: it always responds HTTP 200, even for errors — failures
+only show up in the JSON body's `Response`/`Error` fields, which
+`externalMovieService.ts` checks explicitly rather than trusting
+`res.ok`; and its search endpoint returns no synopsis (only the
+per-title details call does), so search results show a poster/title/year
+only until something is actually imported.
+
+**Bulk-populating a real catalog.** One-at-a-time search-and-import is
+fine for curating a specific catalog, but doesn't get you from "4 movies"
+to "a real-feeling library" quickly. The admin Movies page also has a
+**"Populate Popular Movies"** button (`POST
+/api/admin/external-movies/bulk-import`) that resolves a curated list of
+~65 well-known real titles (`apps/api/src/data/curatedMovieTitles.ts`,
+mixing internationally known films and Bollywood titles) through OMDb —
+one request per title, 5 at a time, in a few seconds. Every imported
+movie is still 100% real OMDb data (poster, runtime, genre, synopsis);
+only the *selection* of which titles to fetch is a static list, not the
+data itself. This exists specifically because **OMDb has no "trending" /
+"now playing" / "discover" endpoint** — unlike TMDB, it only supports
+exact lookups (by id or by title), so there is no free way to ask it
+"what's popular right now." A curated title list resolved through
+per-title lookups is the practical middle ground available without a
+paid discovery API.
+
+**Important: restart the API after setting/changing any API key in
+`.env`** (`OMDB_API_KEY`, `RESEND_API_KEY`, `STRIPE_SECRET_KEY`, etc). `dotenv` only reads
+`apps/api/.env` once, at process startup — editing the file while `npm
+run dev`/`tsx watch` is already running does *not* take effect, since
+`.env` isn't part of the module graph `tsx watch` tracks for changes.
+The API logs each integration's configured/not-configured status at
+startup specifically so this is immediately checkable — if you just set
+a key and still see "not configured" in that startup line, the process
+needs a restart, not a different key.
+
+### Search Movies vs Now Showing — two different questions, two different pages
+
+An early version of this app mixed "browse the catalog" and "book a
+ticket" into one movie list — which meant clicking some movies (bulk-
+imported real titles with no scheduled shows yet) led nowhere, with no
+explanation why. Real platforms never do this: BookMyShow only ever
+*lists* what you can actually book. The fix is two genuinely separate
+concepts, not a flag on one page:
+
+- **Now Showing** (the home page) answers "what can I book right now" —
+  it calls `GET /api/movies?bookable=true`, which only returns movies
+  with at least one **upcoming** `Show` row. Nothing on this page is a
+  dead end.
+- **Search Movies** answers "what does a real movie database know about
+  any title" — it calls the public `GET /api/movies/discover` /
+  `/discover/:externalId` endpoints, which proxy OMDb live and are
+  completely independent of ShowTime's own catalog. A result here shows
+  real poster/synopsis/runtime/genre and OMDb's own `imdbRating`
+  (explicitly labeled as IMDb's rating, never conflated with this app's
+  own user-review system — those two numbers can legitimately differ and
+  mean different things). If that title *also* happens to be in
+  ShowTime's catalog with an upcoming show, the detail view offers a real
+  "Book Now" link into the normal booking flow; if not, it says so
+  plainly ("not currently available for booking") rather than pretending
+  a purchase path exists.
+
+Mixing these into one endpoint/page would make it easy to accidentally
+present a browsable-but-unbookable result as if it were a normal catalog
+entry — exactly the bug this split exists to prevent.
+
+Search Movies also shows a **"Trending Now"** section by default, before
+any query is typed, via `GET /api/movies/discover/trending` — a fixed
+slice of ~12 well-known real titles resolved through OMDb (same curated
+list the admin bulk-import uses) and cached server-side for 6 hours.
+This exists purely so the page never opens to an empty search box — the
+titles themselves are real OMDb data either way, only the *selection* of
+which dozen to show by default is fixed rather than live (OMDb has no
+"trending" concept of its own to ask). A discover result's detail view
+also now surfaces more of what OMDb actually returns — director, cast,
+awards, language, country, and content rating — not just poster/genre/
+runtime, so browsing a title feels closer to a real movie database entry.
+
+### Carrying a selected city into a movie's showtimes
+
+`GET /api/movies/:id/shows` accepts an optional `?city=`, narrowing a
+movie's shows to one city's theatres — this is what lets a city chosen on
+the home page carry through into a movie's detail page by default,
+instead of showing every theatre in every city that movie happens to
+play in (a real bug in an earlier pass: the city filter only ever
+affected the home page's movie list, never what you saw after clicking
+into a specific movie). The selected city lives in its own small,
+`localStorage`-persisted Redux slice (`src/store/slices/locationSlice.ts`
+in `apps/web`) rather than page-local state, specifically so it survives
+navigating between pages (and a page reload) — "the city I picked" is a
+piece of session-wide context, not something scoped to whichever page
+happened to render the picker. The movie detail page always shows an
+obvious, one-click way to switch to a different city or clear the filter
+entirely — a persisted default should never feel like a trap with no way
+out.
+
+### Real, dynamic location data — city search and browser geolocation
+
+Two free, keyless public APIs back the city picker (`apps/api/src/services/locationService.ts`):
+
+- **`GET /api/locations/india-cities`** proxies a real list of ~4,267
+  Indian cities and towns (cached 24h in Redis), used for the city
+  picker's search-as-you-type `Autocomplete`. This is genuinely live,
+  real third-party data — unlike theatre listings (see below), a plain
+  list of city *names* is exactly the kind of thing a free geo API can
+  and does provide.
+- **`GET /api/locations/reverse-geocode?lat=&lon=`** proxies OpenStreetMap's
+  free reverse-geocoding service, turning `navigator.geolocation`
+  coordinates into a city name server-side (kept server-side specifically
+  because Nominatim's usage policy requires a real `User-Agent` header
+  identifying the calling app — centralizing that in one place is
+  simpler and avoids a CORS dance from the browser).
+
+**The city Autocomplete's list and the "what can I actually book" list
+are deliberately two different data sources.** You can pick — or have
+geolocation resolve — literally any real Indian city (e.g. "Siliguri," a
+real city ShowTime has no theatres in) from the big list above. Doing so
+is allowed and expected; `GET /api/movies?bookable=true&city=Siliguri`
+will legitimately return zero results, and the UI shows a plain "ShowTime
+doesn't have theatres in Siliguri yet" message with the actual
+serviceable cities (`GET /api/theatres/cities` — the curated ~10-city
+list) offered as quick picks, rather than a bare empty grid or a
+pretended "nearest theatre" calculation.
+
+### Real theatre locations via OpenStreetMap, and a fast bulk show scheduler
+
+A theatre's **name and location** turned out to have a genuinely free,
+open source after all: **OpenStreetMap** (ODbL-licensed, free, keyless)
+maps real-world points of interest, including real cinemas — actual
+chains like PVR, INOX, and Cinépolis, plus independent single-screen
+theatres — tagged `amenity=cinema`. The admin Theatres page has an
+**"Import Real Theatre"** flow (`apps/api/src/services/theatreDiscoveryService.ts`,
+`/api/admin/theatre-discovery/*`) that geocodes a city (via Nominatim, to
+get a bounding box — more robust than matching Overpass's "area name"
+exactly, which is fragile across naming variants like "Bangalore" vs
+OSM's "Bengaluru"), then queries the Overpass API for every cinema node
+in that box. Importing one creates a real local `Theatre` row — genuine
+name, genuine address — with two screens auto-generated with a default
+seat layout (an admin can hand-edit that layout afterward via the
+existing seat layout editor; OSM has no opinion on a cinema's actual
+seating chart, since no free source publishes that either).
+
+**This narrows, but does not eliminate, the earlier limitation.** A
+theatre's *existence and location* can now be real. Its *screens, seat
+layout, and — critically — its schedule* still cannot come from
+anywhere free: no public API anywhere publishes which movie is playing
+at which real theatre, when, at what price — that actually is the
+proprietary operational data platforms like BookMyShow keep to
+themselves, and remains true regardless of how good the location data
+gets. So `Show` rows stay admin-curated, either by hand or via a new
+**"Auto-schedule Shows"** bulk admin action (`POST
+/api/admin/shows/auto-schedule`) that distributes a set of movies an
+admin has already picked across every screen currently lacking an
+upcoming show, at staggered times over the next few days. This is
+explicitly a fast data-entry convenience, not a live feed of any
+kind — worth being precise about the difference: "real theatre, admin-
+scheduled showtimes" is an honest, useful state to be in; claiming the
+schedule itself is "dynamic" would not be.
+
+### QR code e-tickets — in the app, and emailed
+
+A booking's confirmation screen and "My Bookings" list render a QR code
+(via `qrcode.react`, generated client-side) encoding a compact plain-text
+ticket: reference, movie, seats, and showtime. My Bookings shows this
+ticket **inline by default** for every confirmed booking — the reference
+code was never meant to be the primary artifact a user sees; the ticket
+is. A production version scanned by real theatre staff would likely
+encode a **verification URL** (`/verify/:reference`) instead of the raw
+details, so staff-side scanning could check the reference against the
+database and mark it checked-in — called out here as a natural next
+step, not built, since it needs an admin-side "scan to verify" screen
+this project doesn't otherwise need.
+
+The same ticket is also **emailed** — see "Real email delivery" below —
+using a server-generated PNG of the identical QR payload
+(`services/emailService.ts`, via the `qrcode` npm package), so an emailed
+ticket and the in-app one scan to the same thing.
+
+### Real email delivery (Resend) — OTP verification, password reset, ticket emails
+
+Three places in this app now send real email, via [Resend](https://resend.com):
+
+1. **OTP email verification at registration.** `POST /api/auth/register`
+   still logs the user in immediately (verification does **not** gate
+   login, booking, or rating in this implementation — see the comment on
+   `User.emailVerified` in `schema.prisma` for why that's a deliberate
+   scope boundary, not an oversight) but also generates a 6-digit code,
+   stores it in Redis (`otp:verify-email:{userId}`, 10-minute TTL — the
+   same `SET ... EX` pattern as seat holds, reused here because "a
+   short-lived, self-expiring value" is exactly what it is again), and
+   emails it. `POST /api/auth/verify-email` checks the code and flips
+   `User.emailVerified`; `POST /api/auth/resend-otp` re-issues one.
+2. **Forgot-password OTP.** `POST /api/auth/forgot-password` (`{email}`)
+   issues a 6-digit code the same way, under a separate Redis namespace
+   (`otp:reset-password:{userId}` — `otpService.ts` takes a `purpose` so
+   an in-flight email-verification code and an in-flight password-reset
+   code for the same user can never collide with or invalidate each
+   other) and emails it. `POST /api/auth/reset-password`
+   (`{email,otp,newPassword,confirmNewPassword}`) verifies the code and
+   the new password together as one action — there's no separate
+   "code verified, now pick a password" step, so a checked-but-unused
+   code can never sit around as a standing credential — then logs the
+   user in with their new password, same as registration does. Both
+   `forgot-password` and `resend-otp` always respond `204` whether or not
+   an account exists for that email, for the same reason
+   `POST /api/bookings/find` always returns the same 404 either way — no
+   endpoint in this app should be usable to enumerate which emails have
+   accounts.
+3. **Booking ticket emails**, sent to whichever email a booking actually
+   belongs to (the guest's `guestEmail`, or a logged-in user's account
+   email) immediately after a booking confirms.
+
+Both are **fire-and-forget**: registration succeeds and a booking's HTTP
+response returns regardless of whether the email send succeeds. This
+matters most for bookings specifically — by the time an email is even
+attempted, the booking has already durably committed inside the Postgres
+transaction (see the race-condition section above); a slow or failing
+email provider must never be able to delay or appear to fail a booking
+that has, in fact, already succeeded. `bookingService.ts` looks up the
+recipient and calls `sendBookingTicketEmail` without `await`ing it into
+the response path, and `emailService.ts` internally catches and logs
+(never throws) any send failure.
+
+Without `RESEND_API_KEY` configured, every email is instead **logged in
+full to the API's console** — same graceful-degradation pattern as OMDb:
+a missing third-party credential shrinks a feature's real-world reach, it
+never breaks the feature's caller or the app's boot. This also makes the
+feature fully demoable offline: register a test account and the OTP is
+sitting right there in the terminal.
+
+One real constraint worth knowing: Resend's sandbox (no verified sending
+domain) can only deliver to the email address that owns the Resend
+account — not to arbitrary guest emails. Verifying a domain removes this
+limit; until then, treat the console log as the reliable way to see what
+would have been sent to anyone else.
+
+### Payment: real Stripe test mode, with a mocked fallback
+
+Payment now goes through real **Stripe, in test mode only** (never live
+keys) — `apps/api/src/services/paymentService.ts` — with the original
+mocked behavior kept as an automatic fallback when `STRIPE_SECRET_KEY`
+isn't configured, the same graceful-degradation posture as every other
+optional integration in this app.
+
+**Flow:**
+1. `POST /api/bookings/create-payment-intent` (`{showId, seatIds}`, needs
+   the same `X-Session-Id` + valid Redis hold as everywhere else) creates
+   a real Stripe `PaymentIntent` for the cart's actual total (computed
+   server-side, never trusted from the client) and returns a
+   `client_secret`.
+2. The frontend mounts Stripe's `PaymentElement` with that secret and
+   calls `stripe.confirmPayment(...)`. Test-mode card payments without 3D
+   Secure resolve **synchronously** in the browser — no webhook
+   infrastructure is needed for this app to know the outcome, which is
+   what lets checkout stay the single synchronous request/response flow
+   the rest of this design already assumes.
+3. `POST /api/bookings/confirm` now takes a `paymentIntentId` instead of
+   the old `simulatePaymentFailure` flag (which still works, but only
+   when Stripe isn't configured). The server **re-fetches the
+   PaymentIntent from Stripe itself** — never trusts the client's word
+   that payment succeeded — and checks three things before proceeding:
+   status is `succeeded`, the amount matches this exact cart's total, and
+   the PaymentIntent's metadata (`showId` + a sorted seat-id key) matches
+   this exact attempt, so a PaymentIntent created for one cart can't be
+   replayed against a different one. `Booking.paymentIntentId` is also
+   `@unique`, so the same successful payment can never be attached to two
+   bookings.
+4. This verification happens **before** the atomic seat-booking
+   transaction — exactly where the old mock check lived. The two-layer
+   Redis/Postgres concurrency design (the actual centerpiece of this
+   project) is completely unaffected by which payment path is active;
+   payment is a gate in front of the transaction, never inside it.
+
+**Demo test cards** (Stripe test mode, no real charge ever occurs):
+`4242 4242 4242 4242` (any future expiry, any CVC, any ZIP) always
+succeeds; `4000 0000 0000 0002` always declines, for exercising the
+failure path with a real Stripe response instead of a boolean flag.
+
+---
+
+## What was deliberately cut (and why)
+
+- **Real payment gateway with an async, webhook-confirmed flow.** The
+  Stripe integration above is real (test mode) but still synchronous —
+  a production system handling redirect-based payment methods (not just
+  cards) or requiring 3D Secure would need `PENDING` bookings and a
+  webhook-driven confirmation instead (see INTERVIEW_NOTES.md).
+- **Drag-and-drop visual seat layout builder.** The admin seat layout
+  editor is a form-based list (row/col/label/category per seat) — the
+  brief explicitly calls a visual builder a nice-to-have, not required,
+  and it would spend complexity budget on the admin app instead of the
+  booking logic.
+- **Docker / Kubernetes / message queues / GraphQL.** Not needed at this
+  scale, and would obscure rather than showcase the concurrency design
+  that's the actual point of the project.
+- **Releasing a seat hold on socket disconnect.** Holds rely solely on
+  the 5-minute Redis TTL, not on tracking which socket owns which
+  session's holds. Wiring disconnect-triggered release correctly (across
+  reconnects, multiple tabs sharing a sessionId, etc.) adds real
+  complexity for a marginal UX improvement (a slightly faster seat
+  release when someone closes their tab); the TTL is an adequate safety
+  net and keeps the hold's ownership model (Redis key ↔ sessionId) fully
+  independent of the transport (Socket.io connection) that reports it.
+
+---
+
+## Local setup
+
+> Deploying this instead? See [DEPLOYMENT.md](./DEPLOYMENT.md) —
+> `apps/web`/`apps/admin` to Vercel, `apps/api` to Render, no Docker
+> needed. Two things had to change in the codebase to make that possible
+> (a real dual CJS/ESM build for `packages/shared`, and environment-aware
+> cookie settings for cross-domain auth) — both explained there.
+
+### Prerequisites
+- Node.js 18+
+- PostgreSQL running locally, with a database created for this project
+- Redis running locally
+
+### Install
+
+```bash
+npm install   # installs all three apps + packages/shared via npm workspaces
+```
+
+### Configure environment variables
+
+```bash
+cp apps/api/.env.example apps/api/.env
+# edit apps/api/.env if your Postgres/Redis connection differs from the defaults:
+#   DATABASE_URL="postgresql://<user>@localhost:5432/showtime"
+#   REDIS_URL="redis://localhost:6379"
+#   JWT_SECRET="<anything for local dev>"
+#   PORT=4000
+#   WEB_ORIGIN="http://localhost:5173"
+#   ADMIN_ORIGIN="http://localhost:5174"
+#   OMDB_API_KEY=""    # optional — only needed for admin's "Import Movie".
+#                      # Free key, emailed instantly, from https://www.omdbapi.com/apikey.aspx
+#   RESEND_API_KEY=""  # optional — only needed for real email delivery.
+#                      # Free key from https://resend.com/api-keys — without it,
+#                      # OTP codes and ticket emails are logged to the console instead.
+#   STRIPE_SECRET_KEY="" # optional — only needed for real (test-mode) payments.
+#                        # TEST key (sk_test_...) from https://dashboard.stripe.com/test/apikeys
+#                        # — without it, checkout falls back to the mocked payment flow.
+```
+
+`apps/web/.env` needs `VITE_STRIPE_PUBLISHABLE_KEY` (the matching `pk_test_...`
+test key) to actually render the Stripe payment form once
+`STRIPE_SECRET_KEY` is set server-side — without it, checkout still uses
+the mocked fallback even if the server has a Stripe key configured.
+
+`apps/web/.env` and `apps/admin/.env` point at the API (`VITE_API_URL`,
+and `VITE_SOCKET_URL` for web) — see each app's `.env.example`.
+
+### Migrate + seed
+
+```bash
+cd apps/api
+npx prisma migrate dev   # creates all tables
+npm run db:seed          # seeds movies/theatres/shows/demo users + a past booking for ratings
+```
+
+### Run everything
+
+```bash
+# from the repo root — runs api (:4000), web (:5173), admin (:5174) together
+npm run dev
+```
+
+Or run any single app on its own:
+
+```bash
+npm run dev --workspace=apps/api
+npm run dev --workspace=apps/web
+npm run dev --workspace=apps/admin
+```
+
+### Demo credentials (from the seed data)
+
+| Role | Email | Password |
+|---|---|---|
+| Admin (apps/admin) | `admin@showtime.dev` | `Admin123!` |
+| Customer | `demo@showtime.dev` | `Demo1234!` |
+| Customer (alt) | `sam@showtime.dev` | `Demo1234!` |
+
+Sample guest booking (for "Find my booking"): reference `SHOW-GUEST1`,
+email `jordan.guest@example.com`.
+
+The demo user (`demo@showtime.dev`) already has a `CONFIRMED` booking
+against a show whose `endTime` is in the past, specifically so the rating
+feature can be demoed immediately — see "Rate this movie" on **The Last
+Signal**.
+
+All three seeded accounts (`admin`, `demo`, `sam`) are pre-marked
+`emailVerified: true` so demo logins skip the OTP step entirely — that
+flow is still fully live for any *new* account registered through the
+app. Seed data spans ten Indian cities across twenty theatres (forty
+screens), so the home page's city filter has real breadth to demonstrate.
+
+**To get a real, ~65-title movie catalog instead of the 4 hand-seeded
+movies**, log into the admin panel and click **"Populate Popular
+Movies"** on the Movies page once (needs `OMDB_API_KEY` configured —
+see above). This is a one-click action, not part of the seed script
+itself, since it needs live network access and a valid API key that a
+CI/offline seed run can't assume it has.
+
+### Proving the concurrency handling
+
+```bash
+cd apps/api
+npx tsx scripts/race-test.ts redis
+npx tsx scripts/race-test.ts db
+```
+
+See [Race-condition handling](#race-condition-handling-the-centerpiece)
+above for what each proves and how to reproduce the hold-expiry case
+manually via `redis-cli`.

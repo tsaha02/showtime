@@ -1,0 +1,266 @@
+// ShowTime database schema.
+//
+// Design choice: Prisma + Postgres, chosen for type-safe query building and
+// straightforward `$transaction` support, which the booking flow leans on
+// heavily (see services/bookingService.ts). Raw SQL would work equally
+// well for the transactional logic, but Prisma keeps the CRUD-heavy admin
+// routes short without hiding the one transaction that actually matters.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+}
+
+enum SeatCategory {
+  SILVER
+  GOLD
+  PREMIUM
+  RECLINER
+}
+
+// PENDING and FAILED exist for API/documentation completeness (see
+// packages/shared/src/constants.ts) but are never actually persisted by
+// this implementation: a booking attempt either fully succeeds inside one
+// Postgres transaction (-> CONFIRMED row is written) or fully fails
+// (-> transaction rolls back, nothing is written, the client gets an error
+// response). A production system with an async/webhook-confirmed payment
+// provider would need PENDING as a real, queryable state.
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  FAILED
+}
+
+model User {
+  id           String    @id @default(uuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         UserRole  @default(CUSTOMER)
+  // Set via a 6-digit OTP emailed at registration (see authService.ts /
+  // emailService.ts). Deliberately does NOT gate login, booking, or
+  // rating in this implementation — it's informational (shown in the
+  // UI, resend/verify endpoints exist) rather than a hard access
+  // control, to keep the verification feature additive and isolated
+  // from the booking transaction's already-carefully-scoped logic.
+  emailVerified Boolean  @default(false)
+  createdAt    DateTime  @default(now())
+
+  bookings Booking[]
+  ratings  Rating[]
+}
+
+model Movie {
+  id           String   @id @default(uuid())
+  title        String
+  description  String
+  durationMins Int
+  genre        String
+  posterUrl    String?
+  releaseDate  DateTime
+  // Set when this movie was imported from an external movie database
+  // (admin "Import movie" flow, currently backed by OMDb — see
+  // services/externalMovieService.ts) rather than typed in by hand.
+  // Named generically (not e.g. "omdbId") so the backing provider can be
+  // swapped later without another rename. Unique so re-importing the
+  // same title updates the existing row instead of duplicating it. Null
+  // for movies created manually — this linkage is optional, not
+  // required, since the admin CRUD form still works standalone.
+  externalId   String?  @unique
+  createdAt    DateTime @default(now())
+
+  shows   Show[]
+  ratings Rating[]
+}
+
+model Theatre {
+  id        String   @id @default(uuid())
+  name      String
+  city      String
+  address   String
+  // Set when this theatre was imported from OpenStreetMap's real cinema
+  // location data (admin "Import real theatres" flow — see
+  // services/theatreDiscoveryService.ts) rather than hand-entered.
+  // OpenStreetMap is a genuinely free, open dataset of real-world
+  // points of interest (including actual cinema chains like PVR/INOX),
+  // so a theatre's NAME and LOCATION can be real — unlike its screens,
+  // seat layout, and showtimes, none of which any free source publishes
+  // (see the long comment on `Show` — no free API exists for actual
+  // scheduling data). Nullable + unique so re-importing the same OSM
+  // node updates rather than duplicates it; null for hand-entered
+  // theatres, exactly like `Movie.externalId`.
+  osmId     String?  @unique
+  createdAt DateTime @default(now())
+
+  screens Screen[]
+}
+
+model Screen {
+  id        String   @id @default(uuid())
+  theatreId String
+  name      String
+  createdAt DateTime @default(now())
+
+  theatre    Theatre     @relation(fields: [theatreId], references: [id], onDelete: Cascade)
+  seatLayout SeatLayout?
+  shows      Show[]
+
+  @@index([theatreId])
+}
+
+// One seat layout per screen. Kept as its own table (rather than seats
+// hanging directly off Screen) so a screen could in principle be
+// re-laid-out by creating a new SeatLayout without deleting seat history —
+// not exercised by this app, but it's why the indirection exists.
+model SeatLayout {
+  id        String   @id @default(uuid())
+  screenId  String   @unique
+  createdAt DateTime @default(now())
+
+  screen Screen @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  seats  Seat[]
+}
+
+// `row`/`col` are the seat's position in the physical grid; `label` is the
+// human-readable seat number shown to the user (e.g. "A12"). They are
+// deliberately decoupled: a screen can have aisle gaps or irregular
+// numbering (no seat at row 3, col 7; row 5 labelled "F1" instead of a
+// literal row/col-derived string) without the layout needing to be a dense
+// rectangular array. The grid is only ever used for rendering position;
+// `label` is what every other part of the system (bookings, receipts)
+// displays and refers to.
+model Seat {
+  id       String       @id @default(uuid())
+  layoutId String
+  row      Int
+  col      Int
+  label    String
+  category SeatCategory
+
+  layout       SeatLayout    @relation(fields: [layoutId], references: [id], onDelete: Cascade)
+  bookingSeats BookingSeat[]
+
+  @@unique([layoutId, row, col])
+  @@unique([layoutId, label])
+}
+
+// Which movie plays at which screen, when. Unlike `Movie` (enrichable
+// from OMDb) and `Theatre` (enrichable from OpenStreetMap's real cinema
+// locations), there is no free public source for real showtime/
+// scheduling data anywhere — that's exactly the proprietary operational
+// data platforms like BookMyShow and individual cinema chains keep to
+// themselves. `Show` rows are therefore always admin-curated (directly,
+// or via the bulk "Auto-schedule shows" admin action, which is a fast
+// data-entry convenience, not a live feed of any kind).
+model Show {
+  id        String   @id @default(uuid())
+  movieId   String
+  screenId  String
+  startTime DateTime
+  endTime   DateTime
+  createdAt DateTime @default(now())
+
+  movie    Movie           @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  screen   Screen          @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  prices   ShowSeatPrice[]
+  bookings Booking[]
+
+  @@index([movieId])
+  @@index([screenId])
+}
+
+// Price is per-show-per-category, not on Seat itself: the same physical
+// seat can cost differently across shows (weekday vs weekend, blockbuster
+// vs matinee, etc).
+model ShowSeatPrice {
+  id       String       @id @default(uuid())
+  showId   String
+  category SeatCategory
+  price    Int
+
+  show Show @relation(fields: [showId], references: [id], onDelete: Cascade)
+
+  @@unique([showId, category])
+}
+
+model Booking {
+  id          String        @id @default(uuid())
+  reference   String        @unique
+  status      BookingStatus @default(CONFIRMED)
+  showId      String
+  userId      String?
+  guestName   String?
+  guestEmail  String?
+  guestPhone  String?
+  totalAmount Int
+  // Immutable snapshot of what was booked (seat label/category/price at
+  // booking time), kept even after cancellation deletes the live
+  // BookingSeat rows below. This is what booking-history/receipt views
+  // read from, so a cancellation never rewrites booking history.
+  seatsSnapshot Json
+  // Stripe PaymentIntent id, when a real (test-mode) Stripe payment was
+  // used to confirm this booking — null for bookings confirmed via the
+  // mocked payment fallback (see paymentService.ts). Unique so the same
+  // PaymentIntent can never be attached to more than one booking, which
+  // is what stops a captured payment from being replayed to create
+  // multiple bookings.
+  paymentIntentId String? @unique
+  createdAt   DateTime      @default(now())
+
+  show         Show          @relation(fields: [showId], references: [id], onDelete: Cascade)
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  bookingSeats BookingSeat[]
+
+  @@index([userId])
+  @@index([guestEmail])
+  @@index([showId])
+}
+
+// The actual source of truth for "is this seat taken". A row here means
+// "this seat, on this show, is booked" — full stop. There is no separate
+// status column: cancelling a booking DELETES its BookingSeat rows (inside
+// the same transaction that flips Booking.status to CANCELLED), which is
+// exactly what frees the seat back up for a future booking. The plain
+// @@unique below is therefore sufficient to guarantee no seat is ever
+// double-booked, with no need for a partial/filtered index.
+model BookingSeat {
+  id        String       @id @default(uuid())
+  bookingId String
+  showId    String
+  seatId    String
+  category  SeatCategory
+  price     Int
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  seat    Seat    @relation(fields: [seatId], references: [id], onDelete: Cascade)
+
+  @@unique([showId, seatId])
+}
+
+// One rating per user per movie. Eligibility (must hold a CONFIRMED
+// booking for a Show of this movie whose endTime has passed) is enforced
+// in application code at write time, not expressible as a schema
+// constraint.
+model Rating {
+  id        String   @id @default(uuid())
+  movieId   String
+  userId    String
+  stars     Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  movie Movie @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([movieId, userId])
+}

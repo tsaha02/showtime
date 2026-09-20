@@ -1,0 +1,28 @@
+{
+  "name": "@showtime/shared",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/esm/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.cjs.json && tsc -p tsconfig.esm.json && node scripts/write-dist-package-json.js",
+    "dev": "node scripts/write-dist-package-json.js && concurrently -n cjs,esm \"tsc -p tsconfig.cjs.json --watch --preserveWatchOutput\" \"tsc -p tsconfig.esm.json --watch --preserveWatchOutput\"",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'no lint configured for packages/shared'"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.6.3"
+  }
+}

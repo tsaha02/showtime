@@ -1,0 +1,49 @@
+# Render Blueprint — a convenience for provisioning everything in one
+# pass ("New +" → "Blueprint" in the Render dashboard, pointed at this
+# repo). DEPLOYMENT.md's manual dashboard steps are the verified path if
+# anything here is out of date — Render's Blueprint schema (service
+# types, free-tier plan names, etc.) changes over time and this file
+# hasn't been applied against a live Render account.
+services:
+  - type: web
+    name: showtime-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: >-
+      npm install &&
+      npm run build --workspace=packages/shared &&
+      npx prisma generate --schema=apps/api/prisma/schema.prisma &&
+      npm run build --workspace=apps/api
+    startCommand: node apps/api/dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "20"
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: DATABASE_URL
+        fromDatabase:
+          name: showtime-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: showtime-redis
+          property: connectionString
+      # Set these manually in the Render dashboard after the blueprint
+      # applies — secrets and deploy-specific URLs don't belong in a
+      # file committed to the repo:
+      # JWT_SECRET, WEB_ORIGIN, ADMIN_ORIGIN, OMDB_API_KEY,
+      # RESEND_API_KEY, EMAIL_FROM, STRIPE_SECRET_KEY
+
+  - type: redis
+    name: showtime-redis
+    plan: free
+    ipAllowList: []
+
+databases:
+  - name: showtime-db
+    plan: free
