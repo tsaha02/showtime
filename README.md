@@ -1038,6 +1038,69 @@ mirrors `/api/admin/movies`/`/api/admin/shows` the same way.
 
 ---
 
+## Performance and SEO
+
+### Route-level code splitting
+
+Every page in both `apps/web` and `apps/admin` is `React.lazy()`-loaded
+(`App.tsx` in each, wrapped in one `Suspense`) instead of bundled into
+a single chunk. Concretely, the customer app's home page used to
+download and parse ~440KB (gzipped) of JS on first visit — every other
+page, Stripe Elements, and the ticket-PDF pipeline (`jsPDF` +
+`html2canvas`, ~180KB gzipped combined) included, whether or not that
+visit ever touched any of it. It now downloads ~200KB gzipped (verified
+directly — a real browser session against the production build loads
+exactly `vendor` + shared runtime + `HomePage`'s own chunk, nothing
+else). `jsPDF`/`html2canvas` are dynamically imported inside
+`downloadTicketPdf.ts` itself, so they're fetched only when someone
+actually clicks "Download PDF," not on page load. The admin app's
+`AnalyticsPage` (the only page using the `recharts` charting library)
+is isolated the same way, so the other eleven admin pages no longer pay
+for it.
+
+`vite.config.ts` in both apps also sets `manualChunks` to keep
+React/MUI/Emotion in one stable "vendor" chunk, separate from per-page
+code — vendor code changes far less often than app code, so a browser
+that's already cached it doesn't need to re-download it on the next
+deploy.
+
+### Rendering — memoization where it actually matters
+
+`MovieCard` (rendered a dozen+ times per grid) and the seat-map's
+`SeatCell` (50-100+ per screen) are wrapped in `React.memo`. The seat
+map specifically: Redux Toolkit's Immer-based reducers only mutate the
+one seat a socket event actually touched, so every OTHER seat keeps
+the exact same object reference — combined with a `useCallback`-
+stabilized click handler (a fresh arrow-function prop is what would
+otherwise silently defeat `memo` regardless of how stable `seat`
+itself is), this means one seat's hold status changing no longer
+re-renders the other ~50 unaffected cells. Movie/event poster images
+use `loading="lazy"` + `decoding="async"` in grid contexts (never on a
+detail page's single hero image, where lazy-loading would delay
+exactly the element Lighthouse measures as Largest Contentful Paint).
+
+### SEO
+
+- **Per-page `<title>`** via a small `useDocumentTitle` hook — this is
+  a client-rendered SPA with one static `<title>` in `index.html`;
+  without this every route showed the same generic tab title, and
+  (Googlebot specifically executes JS, so this matters for it even if
+  not for simpler crawlers) the same title to any indexer.
+- **JSON-LD structured data** (`JsonLd.tsx`) on movie and event detail
+  pages — real `schema.org` `Movie`/`Event` markup (rating, genre,
+  showtime/venue for events), not decorative; this is what a rich
+  search result actually reads.
+- **`robots.txt`**: `apps/web` allows indexing and points at
+  `sitemap.xml` (covers the static/marketing routes only — movie/event
+  detail pages are admin-managed and change too often for a static
+  file to stay accurate; generating those from the live catalog is
+  real, scoped follow-up work, not something to fake with a stale ID
+  list). `apps/admin` explicitly disallows everything and ships
+  `<meta name="robots" content="noindex, nofollow">` — an internal,
+  login-gated console has no business in search results.
+
+---
+
 ## What was deliberately cut (and why)
 
 - **Real payment gateway with an async, webhook-confirmed flow.** The

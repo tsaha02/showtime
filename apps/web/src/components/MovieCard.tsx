@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Link as RouterLink } from "react-router-dom";
 import { Card, CardActionArea, CardMedia, CardContent, Typography, Chip, Rating, Box } from "@mui/material";
 import type { MovieDTO } from "@showtime/shared";
@@ -5,8 +6,12 @@ import type { MovieDTO } from "@showtime/shared";
 // The one movie-poster-card look used across the app (Home's grid,
 // MovieDetailPage's "You might also like", and Home's "Recommended for
 // you") — kept as a single component so all three stay visually
-// identical instead of drifting apart from copy-pasted JSX.
-export function MovieCard({ movie }: { movie: MovieDTO }) {
+// identical instead of drifting apart from copy-pasted JSX. Memoized:
+// these render in grids of a dozen+ at once, and a parent re-render
+// (e.g. typing in the search box, which changes unrelated state) would
+// otherwise re-render every card in the grid for no reason since each
+// card's own `movie` prop hasn't changed.
+export const MovieCard = memo(function MovieCard({ movie }: { movie: MovieDTO }) {
   return (
     <Card
       sx={{
@@ -25,6 +30,8 @@ export function MovieCard({ movie }: { movie: MovieDTO }) {
           component="img"
           image={movie.posterUrl ?? "https://placehold.co/300x450?text=No+Poster"}
           alt={movie.title}
+          loading="lazy"
+          decoding="async"
           sx={{ aspectRatio: "2 / 3", objectFit: "cover" }}
         />
         <CardContent>
@@ -42,4 +49,4 @@ export function MovieCard({ movie }: { movie: MovieDTO }) {
       </CardActionArea>
     </Card>
   );
-}
+});

@@ -30,6 +30,7 @@ import { TicketQRCode } from "../components/TicketQRCode";
 import { downloadTicketPdf } from "../lib/downloadTicketPdf";
 import type { BookingDTO } from "@showtime/shared";
 
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 // Confirmed bookings default to expanded (ticket visible) for the most
 // recent few — the whole point of this page is "show me my ticket", not
 // "show me a reference code behind a button". Older confirmed bookings
@@ -39,8 +40,10 @@ import type { BookingDTO } from "@showtime/shared";
 const EXPANDED_BY_DEFAULT_COUNT = 3;
 
 export function MyBookingsPage() {
+  useDocumentTitle("My Bookings");
   const { data: bookings, isLoading, isError, error } = useGetMyBookingsQuery();
-  const [cancelBooking, { isLoading: isCancelling }] = useCancelBookingMutation();
+  const [cancelBooking, { isLoading: isCancelling }] =
+    useCancelBookingMutation();
   const dispatch = useAppDispatch();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   // Holds the booking pending cancellation confirmation (or null when the
@@ -58,9 +61,13 @@ export function MyBookingsPage() {
   const handleCancel = async (id: string) => {
     try {
       await cancelBooking(id).unwrap();
-      dispatch(showToast({ message: "Booking cancelled", severity: "success" }));
+      dispatch(
+        showToast({ message: "Booking cancelled", severity: "success" }),
+      );
     } catch (err) {
-      dispatch(showToast({ message: getErrorMessage(err as any), severity: "error" }));
+      dispatch(
+        showToast({ message: getErrorMessage(err as any), severity: "error" }),
+      );
     } finally {
       setPendingCancelId(null);
     }
@@ -93,7 +100,9 @@ export function MyBookingsPage() {
             borderRadius: 3,
           }}
         >
-          <ConfirmationNumberIcon sx={{ fontSize: 48, color: "text.secondary", mb: 1 }} />
+          <ConfirmationNumberIcon
+            sx={{ fontSize: 48, color: "text.secondary", mb: 1 }}
+          />
           <Typography variant="h6" gutterBottom>
             No bookings yet
           </Typography>
@@ -108,10 +117,16 @@ export function MyBookingsPage() {
       <Stack spacing={2}>
         {bookings?.map((booking, index) => {
           const isConfirmed = booking.status === "CONFIRMED";
-          const expanded = isConfirmed && !(collapsed[booking.id] ?? index >= EXPANDED_BY_DEFAULT_COUNT);
+          const expanded =
+            isConfirmed &&
+            !(collapsed[booking.id] ?? index >= EXPANDED_BY_DEFAULT_COUNT);
           const meta = (
             <Box sx={{ width: "100%" }}>
-              <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+              <Stack
+                direction="row"
+                justifyContent="space-between"
+                alignItems="flex-start"
+              >
                 <Box>
                   <Typography variant="h6">{booking.movieTitle}</Typography>
                   <Typography color="text.secondary">
@@ -126,13 +141,21 @@ export function MyBookingsPage() {
                   label={booking.status}
                   size="small"
                   color={
-                    booking.status === "CONFIRMED" ? "success" : booking.status === "CANCELLED" ? "default" : "error"
+                    booking.status === "CONFIRMED"
+                      ? "success"
+                      : booking.status === "CANCELLED"
+                        ? "default"
+                        : "error"
                   }
                 />
               </Stack>
               <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ my: 1 }}>
                 {booking.seats.map((seat) => (
-                  <Chip key={seat.seatId} label={`${seat.label} (${seat.category})`} size="small" />
+                  <Chip
+                    key={seat.seatId}
+                    label={`${seat.label} (${seat.category})`}
+                    size="small"
+                  />
                 ))}
               </Stack>
               <Typography variant="body2" color="text.secondary">
@@ -153,10 +176,14 @@ export function MyBookingsPage() {
             <Accordion
               key={booking.id}
               expanded={expanded}
-              onChange={(_e, next) => setCollapsed((c) => ({ ...c, [booking.id]: !next }))}
+              onChange={(_e, next) =>
+                setCollapsed((c) => ({ ...c, [booking.id]: !next }))
+              }
               disableGutters
             >
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>{meta}</AccordionSummary>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                {meta}
+              </AccordionSummary>
               <AccordionDetails>
                 <Divider sx={{ mb: 2 }} />
                 <Stack spacing={2} alignItems="center">
@@ -168,7 +195,11 @@ export function MyBookingsPage() {
                     }}
                   />
                   <Stack direction="row" spacing={2}>
-                    <Button size="small" variant="outlined" onClick={() => handleDownloadPdf(booking)}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => handleDownloadPdf(booking)}
+                    >
                       Download PDF
                     </Button>
                     <Button
@@ -187,11 +218,15 @@ export function MyBookingsPage() {
         })}
       </Stack>
 
-      <Dialog open={pendingCancelId !== null} onClose={() => setPendingCancelId(null)}>
+      <Dialog
+        open={pendingCancelId !== null}
+        onClose={() => setPendingCancelId(null)}
+      >
         <DialogTitle>Cancel this booking?</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            This frees your seats back up for anyone else to book — it can't be undone.
+            This frees your seats back up for anyone else to book — it can't be
+            undone.
           </DialogContentText>
         </DialogContent>
         <DialogActions>

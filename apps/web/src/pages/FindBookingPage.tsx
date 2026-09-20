@@ -1,20 +1,38 @@
 import { useRef, useState, type FormEvent } from "react";
-import { Box, TextField, Button, Typography, Paper, Alert, Stack, Card, CardContent, Chip, Divider } from "@mui/material";
+import {
+  Box,
+  TextField,
+  Button,
+  Typography,
+  Paper,
+  Alert,
+  Stack,
+  Card,
+  CardContent,
+  Chip,
+  Divider,
+} from "@mui/material";
 import { useFindBookingMutation } from "../store/api";
 import { getErrorMessage } from "../lib/apiError";
 import { TicketQRCode } from "../components/TicketQRCode";
 import { downloadTicketPdf } from "../lib/downloadTicketPdf";
 
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 export function FindBookingPage() {
+  useDocumentTitle("Find My Booking");
   const [reference, setReference] = useState("");
   const [email, setEmail] = useState("");
-  const [findBooking, { data: booking, isLoading, error, isSuccess }] = useFindBookingMutation();
+  const [findBooking, { data: booking, isLoading, error, isSuccess }] =
+    useFindBookingMutation();
   const ticketRef = useRef<HTMLDivElement>(null);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     try {
-      await findBooking({ reference: reference.trim(), email: email.trim() }).unwrap();
+      await findBooking({
+        reference: reference.trim(),
+        email: email.trim(),
+      }).unwrap();
     } catch {
       // error surfaced below
     }
@@ -28,7 +46,9 @@ export function FindBookingPage() {
         </Typography>
         <Box component="form" onSubmit={handleSubmit} noValidate>
           <Stack spacing={2} mt={1}>
-            {error && <Alert severity="error">{getErrorMessage(error as any)}</Alert>}
+            {error && (
+              <Alert severity="error">{getErrorMessage(error as any)}</Alert>
+            )}
             <TextField
               label="Booking reference"
               value={reference}
@@ -44,7 +64,12 @@ export function FindBookingPage() {
               required
               fullWidth
             />
-            <Button type="submit" variant="contained" size="large" disabled={isLoading}>
+            <Button
+              type="submit"
+              variant="contained"
+              size="large"
+              disabled={isLoading}
+            >
               {isLoading ? "Searching…" : "Find booking"}
             </Button>
           </Stack>
@@ -60,13 +85,28 @@ export function FindBookingPage() {
               </Typography>
               <Typography color="text.secondary" gutterBottom>
                 {booking.theatreName} · {booking.screenName} ·{" "}
-                {new Date(booking.showStartTime).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+                {new Date(booking.showStartTime).toLocaleString([], {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
               </Typography>
-              <Chip label={booking.status} size="small" color={booking.status === "CONFIRMED" ? "success" : "default"} sx={{ mb: 2 }} />
+              <Chip
+                label={booking.status}
+                size="small"
+                color={booking.status === "CONFIRMED" ? "success" : "default"}
+                sx={{ mb: 2 }}
+              />
               <Stack spacing={1} sx={{ mb: 2 }}>
                 {booking.seats.map((seat) => (
-                  <Stack key={seat.seatId} direction="row" justifyContent="space-between">
-                    <Chip label={`${seat.label} (${seat.category})`} size="small" />
+                  <Stack
+                    key={seat.seatId}
+                    direction="row"
+                    justifyContent="space-between"
+                  >
+                    <Chip
+                      label={`${seat.label} (${seat.category})`}
+                      size="small"
+                    />
                     <Typography>₹{seat.price}</Typography>
                   </Stack>
                 ))}
@@ -74,7 +114,9 @@ export function FindBookingPage() {
               <Divider sx={{ my: 2 }} />
               <Stack direction="row" justifyContent="space-between">
                 <Typography variant="subtitle1">Total</Typography>
-                <Typography variant="subtitle1">₹{booking.totalAmount}</Typography>
+                <Typography variant="subtitle1">
+                  ₹{booking.totalAmount}
+                </Typography>
               </Stack>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                 Reference: {booking.reference}
@@ -87,7 +129,12 @@ export function FindBookingPage() {
               <Button
                 size="small"
                 variant="outlined"
-                onClick={() => downloadTicketPdf(ticketRef, `ticket-${booking.reference}.pdf`)}
+                onClick={() =>
+                  downloadTicketPdf(
+                    ticketRef,
+                    `ticket-${booking.reference}.pdf`,
+                  )
+                }
               >
                 Download PDF
               </Button>

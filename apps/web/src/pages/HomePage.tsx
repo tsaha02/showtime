@@ -43,6 +43,7 @@ import { getErrorMessage } from "../lib/apiError";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { MovieCard } from "../components/MovieCard";
 
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 const ALL = "__all__";
 
 const TRUST_POINTS = [
@@ -53,6 +54,7 @@ const TRUST_POINTS = [
 ];
 
 export function HomePage() {
+  useDocumentTitle("Movie Tickets Online");
   const dispatch = useAppDispatch();
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
@@ -77,7 +79,9 @@ export function HomePage() {
   const [reverseGeocode] = useLazyReverseGeocodeQuery();
   const [getNearestCities] = useLazyGetNearestCitiesQuery();
   const { data: recommendedMovies } = useGetRecommendedMoviesQuery();
-  const theatresInCity = city ? (theatres ?? []).filter((t) => t.city === city) : [];
+  const theatresInCity = city
+    ? (theatres ?? []).filter((t) => t.city === city)
+    : [];
   const {
     data: movies,
     isLoading,
@@ -95,7 +99,12 @@ export function HomePage() {
 
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) {
-      dispatch(showToast({ message: "Geolocation isn't supported by your browser", severity: "warning" }));
+      dispatch(
+        showToast({
+          message: "Geolocation isn't supported by your browser",
+          severity: "warning",
+        }),
+      );
       return;
     }
     setLocating(true);
@@ -113,10 +122,16 @@ export function HomePage() {
           // serviceable city by real distance (see
           // locationService.ts's findNearestServiceableCities) instead
           // of just dead-ending on "we don't serve this city."
-          const isServiceable = resolvedCity && (serviceableCities ?? []).includes(resolvedCity);
+          const isServiceable =
+            resolvedCity && (serviceableCities ?? []).includes(resolvedCity);
           if (isServiceable) {
             setCity(resolvedCity);
-            dispatch(showToast({ message: `Location set to ${resolvedCity}`, severity: "success" }));
+            dispatch(
+              showToast({
+                message: `Location set to ${resolvedCity}`,
+                severity: "success",
+              }),
+            );
             return;
           }
 
@@ -124,7 +139,9 @@ export function HomePage() {
           const closest = nearest[0];
           if (closest) {
             setCity(closest.city);
-            const nearLabel = resolvedCity ? `${resolvedCity} isn't served yet — showing` : "Showing";
+            const nearLabel = resolvedCity
+              ? `${resolvedCity} isn't served yet — showing`
+              : "Showing";
             dispatch(
               showToast({
                 message: `${nearLabel} ${closest.city} (${closest.distanceKm} km away)`,
@@ -132,12 +149,24 @@ export function HomePage() {
               }),
             );
           } else if (resolvedCity) {
-            dispatch(showToast({ message: `${resolvedCity} isn't served yet`, severity: "warning" }));
+            dispatch(
+              showToast({
+                message: `${resolvedCity} isn't served yet`,
+                severity: "warning",
+              }),
+            );
           } else {
-            dispatch(showToast({ message: "Couldn't determine your city from your location", severity: "warning" }));
+            dispatch(
+              showToast({
+                message: "Couldn't determine your city from your location",
+                severity: "warning",
+              }),
+            );
           }
         } catch (err: any) {
-          dispatch(showToast({ message: getErrorMessage(err), severity: "error" }));
+          dispatch(
+            showToast({ message: getErrorMessage(err), severity: "error" }),
+          );
         } finally {
           setLocating(false);
         }
@@ -170,7 +199,12 @@ export function HomePage() {
           borderColor: "divider",
         }}
       >
-        <Typography variant="h3" fontWeight={800} sx={{ fontSize: { xs: "1.9rem", sm: "2.6rem" } }} gutterBottom>
+        <Typography
+          variant="h3"
+          fontWeight={800}
+          sx={{ fontSize: { xs: "1.9rem", sm: "2.6rem" } }}
+          gutterBottom
+        >
           Book your next show in{" "}
           <Box component="span" sx={{ color: "secondary.main" }}>
             seconds
@@ -181,7 +215,8 @@ export function HomePage() {
           color="text.secondary"
           sx={{ maxWidth: 560, mx: "auto", mb: { xs: 2.5, sm: 3 } }}
         >
-          Real showtimes, live seat selection, and instant e-tickets — across 10 cities.
+          Real showtimes, live seat selection, and instant e-tickets — across 10
+          cities.
         </Typography>
         <Stack
           direction="row"
@@ -265,7 +300,11 @@ export function HomePage() {
                             size="small"
                             edge="end"
                           >
-                            {locating ? <CircularProgress size={18} /> : <MyLocationIcon fontSize="small" />}
+                            {locating ? (
+                              <CircularProgress size={18} />
+                            ) : (
+                              <MyLocationIcon fontSize="small" />
+                            )}
                           </IconButton>
                         </span>
                       </Tooltip>
@@ -281,8 +320,20 @@ export function HomePage() {
 
       {hasFilters && (
         <Stack direction="row" spacing={1} sx={{ mb: 3 }}>
-          {genre !== ALL && <Chip label={`Genre: ${genre}`} onDelete={() => setGenre(ALL)} size="small" />}
-          {city && <Chip label={`City: ${city}`} onDelete={() => setCity(null)} size="small" />}
+          {genre !== ALL && (
+            <Chip
+              label={`Genre: ${genre}`}
+              onDelete={() => setGenre(ALL)}
+              size="small"
+            />
+          )}
+          {city && (
+            <Chip
+              label={`City: ${city}`}
+              onDelete={() => setCity(null)}
+              size="small"
+            />
+          )}
         </Stack>
       )}
 
@@ -296,14 +347,28 @@ export function HomePage() {
               No theatres found in {city}.
             </Typography>
           ) : (
-            <Stack direction="row" spacing={2} sx={{ overflowX: "auto", pb: 1 }}>
+            <Stack
+              direction="row"
+              spacing={2}
+              sx={{ overflowX: "auto", pb: 1 }}
+            >
               {theatresInCity.map((theatre) => (
-                <Card key={theatre.id} variant="outlined" sx={{ minWidth: 220, flexShrink: 0 }}>
+                <Card
+                  key={theatre.id}
+                  variant="outlined"
+                  sx={{ minWidth: 220, flexShrink: 0 }}
+                >
                   <CardContent>
                     <Stack direction="row" spacing={1} alignItems="flex-start">
-                      <LocationOnIcon color="primary" fontSize="small" sx={{ mt: 0.3 }} />
+                      <LocationOnIcon
+                        color="primary"
+                        fontSize="small"
+                        sx={{ mt: 0.3 }}
+                      />
                       <Box>
-                        <Typography variant="subtitle2">{theatre.name}</Typography>
+                        <Typography variant="subtitle2">
+                          {theatre.name}
+                        </Typography>
                         <Typography variant="body2" color="text.secondary">
                           {theatre.address}
                         </Typography>
@@ -317,43 +382,74 @@ export function HomePage() {
         </Box>
       )}
 
-      {isError && <Alert severity="error">{getErrorMessage(error as any)}</Alert>}
-      {!isLoading && !isError && movies?.length === 0 && city && !cityIsServiceable && (
-        <Alert severity="info" sx={{ mb: 3 }}>
-          <Typography gutterBottom>ShowTime doesn't have theatres in {city} yet.</Typography>
-          {serviceableCities && serviceableCities.length > 0 && (
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
-              {serviceableCities.map((c) => (
-                <Chip key={c} label={c} size="small" onClick={() => setCity(c)} clickable />
-              ))}
-            </Stack>
-          )}
-        </Alert>
+      {isError && (
+        <Alert severity="error">{getErrorMessage(error as any)}</Alert>
       )}
-      {!isLoading && !isError && movies?.length === 0 && (!city || cityIsServiceable) && (
-        <Box
-          sx={{
-            textAlign: "center",
-            py: 8,
-            px: 2,
-            border: "1px dashed",
-            borderColor: "divider",
-            borderRadius: 3,
-          }}
-        >
-          <MovieFilterIcon sx={{ fontSize: 48, color: "text.secondary", mb: 1 }} />
-          <Typography variant="h6" gutterBottom>
-            No movies match your filters
-          </Typography>
-          <Typography color="text.secondary">Try clearing the search, genre, or city.</Typography>
-        </Box>
-      )}
+      {!isLoading &&
+        !isError &&
+        movies?.length === 0 &&
+        city &&
+        !cityIsServiceable && (
+          <Alert severity="info" sx={{ mb: 3 }}>
+            <Typography gutterBottom>
+              ShowTime doesn't have theatres in {city} yet.
+            </Typography>
+            {serviceableCities && serviceableCities.length > 0 && (
+              <Stack
+                direction="row"
+                spacing={1}
+                flexWrap="wrap"
+                useFlexGap
+                sx={{ mt: 1 }}
+              >
+                {serviceableCities.map((c) => (
+                  <Chip
+                    key={c}
+                    label={c}
+                    size="small"
+                    onClick={() => setCity(c)}
+                    clickable
+                  />
+                ))}
+              </Stack>
+            )}
+          </Alert>
+        )}
+      {!isLoading &&
+        !isError &&
+        movies?.length === 0 &&
+        (!city || cityIsServiceable) && (
+          <Box
+            sx={{
+              textAlign: "center",
+              py: 8,
+              px: 2,
+              border: "1px dashed",
+              borderColor: "divider",
+              borderRadius: 3,
+            }}
+          >
+            <MovieFilterIcon
+              sx={{ fontSize: 48, color: "text.secondary", mb: 1 }}
+            />
+            <Typography variant="h6" gutterBottom>
+              No movies match your filters
+            </Typography>
+            <Typography color="text.secondary">
+              Try clearing the search, genre, or city.
+            </Typography>
+          </Box>
+        )}
 
       <Grid container spacing={{ xs: 2, sm: 3 }}>
         {isLoading &&
           Array.from({ length: 10 }).map((_, i) => (
             <Grid item xs={6} sm={4} md={3} lg={2.4} key={i}>
-              <Skeleton variant="rounded" height={280} sx={{ borderRadius: 3 }} />
+              <Skeleton
+                variant="rounded"
+                height={280}
+                sx={{ borderRadius: 3 }}
+              />
               <Skeleton variant="text" sx={{ mt: 1 }} />
               <Skeleton variant="text" width="60%" />
             </Grid>

@@ -1,6 +1,20 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate, useLocation, Link as RouterLink, type Location } from "react-router-dom";
-import { Box, TextField, Button, Typography, Paper, Alert, Stack, Link } from "@mui/material";
+import {
+  useNavigate,
+  useLocation,
+  Link as RouterLink,
+  type Location,
+} from "react-router-dom";
+import {
+  Box,
+  TextField,
+  Button,
+  Typography,
+  Paper,
+  Alert,
+  Stack,
+  Link,
+} from "@mui/material";
 import { useLoginMutation } from "../store/api";
 import { useAppDispatch } from "../store/hooks";
 import { setUser } from "../store/slices/authSlice";
@@ -8,7 +22,9 @@ import { getErrorMessage } from "../lib/apiError";
 import { AuthPageLayout } from "../components/AuthPageLayout";
 import { PasswordField } from "../components/PasswordField";
 
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 export function LoginPage() {
+  useDocumentTitle("Log In");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -52,7 +68,9 @@ export function LoginPage() {
         <Box component="form" onSubmit={handleSubmit} noValidate>
           <Stack spacing={2} mt={1}>
             {(formError || error) && (
-              <Alert severity="error">{formError ?? getErrorMessage(error as any)}</Alert>
+              <Alert severity="error">
+                {formError ?? getErrorMessage(error as any)}
+              </Alert>
             )}
             <TextField
               label="Email"
@@ -69,7 +87,12 @@ export function LoginPage() {
               required
               fullWidth
             />
-            <Button type="submit" variant="contained" size="large" disabled={isLoading}>
+            <Button
+              type="submit"
+              variant="contained"
+              size="large"
+              disabled={isLoading}
+            >
               {isLoading ? "Logging in…" : "Log in"}
             </Button>
             <Typography variant="body2">

@@ -1,10 +1,18 @@
-import { useMemo } from "react";
+import { useMemo, useCallback, memo } from "react";
 import { Box, Button, Tooltip, Typography, Stack, Chip } from "@mui/material";
 import AccessibleIcon from "@mui/icons-material/Accessible";
-import { MAX_SEATS_PER_BOOKING, type SeatCategory, type SeatMapEntryDTO } from "@showtime/shared";
+import {
+  MAX_SEATS_PER_BOOKING,
+  type SeatCategory,
+  type SeatMapEntryDTO,
+} from "@showtime/shared";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { useHoldSeatMutation, useReleaseSeatMutation } from "../store/api";
-import { seatHeldLocally, seatReleasedLocally, selectHeldSeatIds } from "../store/slices/bookingSlice";
+import {
+  seatHeldLocally,
+  seatReleasedLocally,
+  selectHeldSeatIds,
+} from "../store/slices/bookingSlice";
 import { showToast } from "../store/slices/uiSlice";
 import { getErrorMessage } from "../lib/apiError";
 
@@ -52,41 +60,67 @@ export function SeatMapGrid({ showId, seats, prices }: SeatMapGridProps) {
     });
   }, [seats]);
 
-  const handleClick = async (seat: SeatMapEntryDTO) => {
-    if (seat.status === "BOOKED") return;
-    if (seat.status === "HELD" && !seat.heldByMe) return; // someone else's hold
+  // Stable across re-renders triggered by OTHER seats' socket events
+  // (only `heldSeatIds` — this user's own selection — actually changes
+  // it) — required for `SeatCell`'s memoization below to be worth
+  // anything, since a new function reference on every render would
+  // defeat it regardless of how `seat` itself is memoized.
+  const handleClick = useCallback(
+    async (seat: SeatMapEntryDTO) => {
+      if (seat.status === "BOOKED") return;
+      if (seat.status === "HELD" && !seat.heldByMe) return; // someone else's hold
 
-    if (seat.heldByMe) {
-      // Deselect: release the hold.
-      try {
-        await releaseSeat({ showId, seatId: seat.id }).unwrap();
-        dispatch(seatReleasedLocally({ seatId: seat.id }));
-      } catch (err) {
-        dispatch(showToast({ message: getErrorMessage(err as any), severity: "error" }));
+      if (seat.heldByMe) {
+        // Deselect: release the hold.
+        try {
+          await releaseSeat({ showId, seatId: seat.id }).unwrap();
+          dispatch(seatReleasedLocally({ seatId: seat.id }));
+        } catch (err) {
+          dispatch(
+            showToast({
+              message: getErrorMessage(err as any),
+              severity: "error",
+            }),
+          );
+        }
+        return;
       }
-      return;
-    }
 
-    // Client-side mirror of confirmBookingSchema's `seatIds` max (see
-    // packages/shared/src/constants.ts) — the server is the actual
-    // guarantee (this check alone proves nothing), but surfacing the
-    // limit here means a user finds out at seat #11, not after filling
-    // in guest details and hitting a confusing 400 at checkout.
-    if (heldSeatIds.length >= MAX_SEATS_PER_BOOKING) {
-      dispatch(showToast({ message: `You can select up to ${MAX_SEATS_PER_BOOKING} seats per booking.`, severity: "warning" }));
-      return;
-    }
+      // Client-side mirror of confirmBookingSchema's `seatIds` max (see
+      // packages/shared/src/constants.ts) — the server is the actual
+      // guarantee (this check alone proves nothing), but surfacing the
+      // limit here means a user finds out at seat #11, not after filling
+      // in guest details and hitting a confusing 400 at checkout.
+      if (heldSeatIds.length >= MAX_SEATS_PER_BOOKING) {
+        dispatch(
+          showToast({
+            message: `You can select up to ${MAX_SEATS_PER_BOOKING} seats per booking.`,
+            severity: "warning",
+          }),
+        );
+        return;
+      }
 
-    // Select: attempt to hold. A 409 here means another client grabbed it
-    // in the gap between the page loading and this click — the classic
-    // race this app is built to demonstrate handling gracefully.
-    try {
-      const { holdExpiresAt } = await holdSeat({ showId, seatId: seat.id }).unwrap();
-      dispatch(seatHeldLocally({ seatId: seat.id, holdExpiresAt }));
-    } catch (err) {
-      dispatch(showToast({ message: getErrorMessage(err as any), severity: "error" }));
-    }
-  };
+      // Select: attempt to hold. A 409 here means another client grabbed it
+      // in the gap between the page loading and this click — the classic
+      // race this app is built to demonstrate handling gracefully.
+      try {
+        const { holdExpiresAt } = await holdSeat({
+          showId,
+          seatId: seat.id,
+        }).unwrap();
+        dispatch(seatHeldLocally({ seatId: seat.id, holdExpiresAt }));
+      } catch (err) {
+        dispatch(
+          showToast({
+            message: getErrorMessage(err as any),
+            severity: "error",
+          }),
+        );
+      }
+    },
+    [showId, releaseSeat, holdSeat, dispatch, heldSeatIds],
+  );
 
   return (
     <Box>
@@ -106,13 +140,21 @@ export function SeatMapGrid({ showId, seats, prices }: SeatMapGridProps) {
 
       <Stack spacing={1} alignItems="center" sx={{ overflowX: "auto", pb: 2 }}>
         {rows.map(({ rowKey, cells }) => (
-          <Stack key={rowKey} direction="row" spacing={0.75} alignItems="center">
-            <Typography variant="caption" sx={{ width: 20, color: "text.secondary" }}>
+          <Stack
+            key={rowKey}
+            direction="row"
+            spacing={0.75}
+            alignItems="center"
+          >
+            <Typography
+              variant="caption"
+              sx={{ width: 20, color: "text.secondary" }}
+            >
               {String.fromCharCode(65 + rowKey)}
             </Typography>
             {cells.map((seat, col) =>
               seat ? (
-                <SeatCell key={seat.id} seat={seat} onClick={() => handleClick(seat)} />
+                <SeatCell key={seat.id} seat={seat} onClick={handleClick} />
               ) : (
                 <Box key={`gap-${col}`} sx={{ width: 32, height: 32 }} />
               ),
@@ -121,7 +163,13 @@ export function SeatMapGrid({ showId, seats, prices }: SeatMapGridProps) {
         ))}
       </Stack>
 
-      <Stack direction="row" spacing={3} justifyContent="center" flexWrap="wrap" sx={{ mt: 3 }}>
+      <Stack
+        direction="row"
+        spacing={3}
+        justifyContent="center"
+        flexWrap="wrap"
+        sx={{ mt: 3 }}
+      >
         <LegendItem color="transparent" border label="Available" />
         <LegendItem color="primary.main" label="Selected (your hold)" />
         <LegendItem color="grey.800" label="Held by someone else" />
@@ -134,7 +182,13 @@ export function SeatMapGrid({ showId, seats, prices }: SeatMapGridProps) {
         </Stack>
       </Stack>
 
-      <Stack direction="row" spacing={1} justifyContent="center" flexWrap="wrap" sx={{ mt: 2 }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        justifyContent="center"
+        flexWrap="wrap"
+        sx={{ mt: 2 }}
+      >
         {(Object.keys(prices) as SeatCategory[]).map((category) => (
           <Chip
             key={category}
@@ -148,7 +202,20 @@ export function SeatMapGrid({ showId, seats, prices }: SeatMapGridProps) {
   );
 }
 
-function SeatCell({ seat, onClick }: { seat: SeatMapEntryDTO; onClick: () => void }) {
+// Memoized: a seat map can have 50-100+ cells, and (thanks to Immer's
+// structural sharing in bookingSlice) every seat OTHER than the one a
+// socket event just touched keeps the exact same object reference — so
+// as long as `onClick` is also stable (see `handleClick`'s useCallback
+// above), memo actually skips re-rendering the ~50 unaffected cells
+// every time one seat's hold status changes, instead of re-rendering
+// the entire grid.
+const SeatCell = memo(function SeatCell({
+  seat,
+  onClick,
+}: {
+  seat: SeatMapEntryDTO;
+  onClick: (seat: SeatMapEntryDTO) => void;
+}) {
   const categoryColor = CATEGORY_COLORS[seat.category];
 
   const badge = seat.wheelchairAccessible && (
@@ -172,7 +239,17 @@ function SeatCell({ seat, onClick }: { seat: SeatMapEntryDTO; onClick: () => voi
     title = "Already booked";
     button = (
       <span>
-        <Button disabled sx={{ minWidth: 32, width: 32, height: 32, p: 0, bgcolor: "grey.900", color: "grey.700" }}>
+        <Button
+          disabled
+          sx={{
+            minWidth: 32,
+            width: 32,
+            height: 32,
+            p: 0,
+            bgcolor: "grey.900",
+            color: "grey.700",
+          }}
+        >
           {seat.label}
         </Button>
       </span>
@@ -181,7 +258,17 @@ function SeatCell({ seat, onClick }: { seat: SeatMapEntryDTO; onClick: () => voi
     title = "Someone else is holding this seat";
     button = (
       <span>
-        <Button disabled sx={{ minWidth: 32, width: 32, height: 32, p: 0, bgcolor: "grey.800", color: "grey.600" }}>
+        <Button
+          disabled
+          sx={{
+            minWidth: 32,
+            width: 32,
+            height: 32,
+            p: 0,
+            bgcolor: "grey.800",
+            color: "grey.600",
+          }}
+        >
           {seat.label}
         </Button>
       </span>
@@ -189,7 +276,12 @@ function SeatCell({ seat, onClick }: { seat: SeatMapEntryDTO; onClick: () => voi
   } else if (seat.heldByMe) {
     title = "Your seat — click to deselect";
     button = (
-      <Button onClick={onClick} variant="contained" color="primary" sx={{ minWidth: 32, width: 32, height: 32, p: 0 }}>
+      <Button
+        onClick={() => onClick(seat)}
+        variant="contained"
+        color="primary"
+        sx={{ minWidth: 32, width: 32, height: 32, p: 0 }}
+      >
         {seat.label}
       </Button>
     );
@@ -200,9 +292,16 @@ function SeatCell({ seat, onClick }: { seat: SeatMapEntryDTO; onClick: () => voi
       : `${seat.category} — click to select`;
     button = (
       <Button
-        onClick={onClick}
+        onClick={() => onClick(seat)}
         variant="outlined"
-        sx={{ minWidth: 32, width: 32, height: 32, p: 0, borderColor: categoryColor, color: categoryColor }}
+        sx={{
+          minWidth: 32,
+          width: 32,
+          height: 32,
+          p: 0,
+          borderColor: categoryColor,
+          color: categoryColor,
+        }}
       >
         {seat.label}
       </Button>
@@ -217,9 +316,17 @@ function SeatCell({ seat, onClick }: { seat: SeatMapEntryDTO; onClick: () => voi
       </Box>
     </Tooltip>
   );
-}
+});
 
-function LegendItem({ color, label, border }: { color: string; label: string; border?: boolean }) {
+function LegendItem({
+  color,
+  label,
+  border,
+}: {
+  color: string;
+  label: string;
+  border?: boolean;
+}) {
   return (
     <Stack direction="row" spacing={0.75} alignItems="center">
       <Box

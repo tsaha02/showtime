@@ -18,24 +18,38 @@ import {
 import SearchIcon from "@mui/icons-material/Search";
 import StarIcon from "@mui/icons-material/Star";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
-import { useDiscoverMoviesQuery, useGetTrendingMoviesQuery } from "../store/api";
+import {
+  useDiscoverMoviesQuery,
+  useGetTrendingMoviesQuery,
+} from "../store/api";
 import { getErrorMessage } from "../lib/apiError";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
-import type { ExternalMovieDetailsDTO, ExternalMovieSearchResultDTO } from "@showtime/shared";
+import type {
+  ExternalMovieDetailsDTO,
+  ExternalMovieSearchResultDTO,
+} from "@showtime/shared";
 
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 // Deliberately separate from HomePage's "Now Showing": this page browses
 // ANY real movie via OMDb (posters, synopsis, IMDb rating), independent of
 // whether ShowTime can actually sell you a ticket for it. Booking is only
 // ever confirmed on the detail view, not implied here.
 export function SearchMoviesPage() {
+  useDocumentTitle("Search Movies");
   const [query, setQuery] = useState("");
   // The input itself updates every keystroke; the actual OMDb search only
   // fires once typing pauses, so a fast typist doesn't fire a request per
   // letter — see useDebouncedValue.ts.
   const debouncedQuery = useDebouncedValue(query);
   const hasQuery = debouncedQuery.trim().length >= 2;
-  const { data: results, isFetching, isError, error } = useDiscoverMoviesQuery(debouncedQuery, { skip: !hasQuery });
-  const { data: trending, isFetching: isTrendingLoading } = useGetTrendingMoviesQuery();
+  const {
+    data: results,
+    isFetching,
+    isError,
+    error,
+  } = useDiscoverMoviesQuery(debouncedQuery, { skip: !hasQuery });
+  const { data: trending, isFetching: isTrendingLoading } =
+    useGetTrendingMoviesQuery();
 
   return (
     <Box>
@@ -79,9 +93,13 @@ export function SearchMoviesPage() {
           <Typography variant="h5" gutterBottom>
             Results for "{query}"
           </Typography>
-          {isError && <Alert severity="error">{getErrorMessage(error as any)}</Alert>}
+          {isError && (
+            <Alert severity="error">{getErrorMessage(error as any)}</Alert>
+          )}
           {!isFetching && !isError && results?.length === 0 && (
-            <Typography color="text.secondary">No movies found for "{query}".</Typography>
+            <Typography color="text.secondary">
+              No movies found for "{query}".
+            </Typography>
           )}
           <MovieResultsGrid movies={results} isLoading={isFetching} />
         </Box>
@@ -98,7 +116,8 @@ function MovieResultsGrid({
   isLoading,
   emptyMessage,
 }: {
-  movies: (ExternalMovieSearchResultDTO | ExternalMovieDetailsDTO)[] | undefined;
+  movies:
+    (ExternalMovieSearchResultDTO | ExternalMovieDetailsDTO)[] | undefined;
   isLoading: boolean;
   emptyMessage?: string;
 }) {
@@ -128,20 +147,35 @@ function MovieResultsGrid({
             <Card
               sx={{
                 height: "100%",
-                "&:hover": { transform: "translateY(-4px)", boxShadow: "0 16px 32px -12px rgba(0,0,0,0.5)", borderColor: "primary.main" },
+                "&:hover": {
+                  transform: "translateY(-4px)",
+                  boxShadow: "0 16px 32px -12px rgba(0,0,0,0.5)",
+                  borderColor: "primary.main",
+                },
               }}
             >
-              <CardActionArea component={RouterLink} to={`/discover/${movie.externalId}`} sx={{ height: "100%" }}>
+              <CardActionArea
+                component={RouterLink}
+                to={`/discover/${movie.externalId}`}
+                sx={{ height: "100%" }}
+              >
                 <Box sx={{ position: "relative" }}>
                   <CardMedia
                     component="img"
-                    image={movie.posterUrl ?? "https://placehold.co/300x450?text=No+Poster"}
+                    image={
+                      movie.posterUrl ??
+                      "https://placehold.co/300x450?text=No+Poster"
+                    }
                     alt={movie.title}
                     sx={{ aspectRatio: "2 / 3", objectFit: "cover" }}
                   />
                   {imdbRating != null && (
                     <Chip
-                      icon={<StarIcon sx={{ fontSize: 14, color: "#1a1a1a !important" }} />}
+                      icon={
+                        <StarIcon
+                          sx={{ fontSize: 14, color: "#1a1a1a !important" }}
+                        />
+                      }
                       label={imdbRating.toFixed(1)}
                       size="small"
                       color="secondary"
@@ -154,7 +188,9 @@ function MovieResultsGrid({
                     {movie.title}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {movie.releaseDate ? new Date(movie.releaseDate).getFullYear() : "Unknown year"}
+                    {movie.releaseDate
+                      ? new Date(movie.releaseDate).getFullYear()
+                      : "Unknown year"}
                   </Typography>
                 </CardContent>
               </CardActionArea>

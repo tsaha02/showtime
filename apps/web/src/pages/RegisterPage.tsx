@@ -1,6 +1,19 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate, useSearchParams, Link as RouterLink } from "react-router-dom";
-import { Box, TextField, Button, Typography, Paper, Alert, Stack, Link } from "@mui/material";
+import {
+  useNavigate,
+  useSearchParams,
+  Link as RouterLink,
+} from "react-router-dom";
+import {
+  Box,
+  TextField,
+  Button,
+  Typography,
+  Paper,
+  Alert,
+  Stack,
+  Link,
+} from "@mui/material";
 import { useRegisterMutation } from "../store/api";
 import { useAppDispatch } from "../store/hooks";
 import { setUser } from "../store/slices/authSlice";
@@ -8,7 +21,9 @@ import { getErrorMessage } from "../lib/apiError";
 import { AuthPageLayout } from "../components/AuthPageLayout";
 import { PasswordField } from "../components/PasswordField";
 
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 export function RegisterPage() {
+  useDocumentTitle("Sign Up");
   const [searchParams] = useSearchParams();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -16,7 +31,9 @@ export function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   // Pre-filled from a referral share link (e.g. /register?ref=ABCD1234) but
   // still freely editable/clearable by the user.
-  const [referralCode, setReferralCode] = useState(() => searchParams.get("ref") ?? "");
+  const [referralCode, setReferralCode] = useState(
+    () => searchParams.get("ref") ?? "",
+  );
   const [formError, setFormError] = useState<string | null>(null);
   const [register, { isLoading, error }] = useRegisterMutation();
   const dispatch = useAppDispatch();
@@ -54,7 +71,10 @@ export function RegisterPage() {
         referralCode: referralCode.trim() || undefined,
       }).unwrap();
       dispatch(setUser(user));
-      navigate("/verify-email", { replace: true, state: { email: user.email } });
+      navigate("/verify-email", {
+        replace: true,
+        state: { email: user.email },
+      });
     } catch {
       // error surfaced below via the mutation's `error`
     }
@@ -69,9 +89,17 @@ export function RegisterPage() {
         <Box component="form" onSubmit={handleSubmit} noValidate>
           <Stack spacing={2} mt={1}>
             {(formError || error) && (
-              <Alert severity="error">{formError ?? getErrorMessage(error as any)}</Alert>
+              <Alert severity="error">
+                {formError ?? getErrorMessage(error as any)}
+              </Alert>
             )}
-            <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} required fullWidth />
+            <TextField
+              label="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              fullWidth
+            />
             <TextField
               label="Email"
               type="email"
@@ -102,7 +130,12 @@ export function RegisterPage() {
               fullWidth
               helperText="Got a code from a friend? Enter it here — you both get ₹100 after your first booking."
             />
-            <Button type="submit" variant="contained" size="large" disabled={isLoading}>
+            <Button
+              type="submit"
+              variant="contained"
+              size="large"
+              disabled={isLoading}
+            >
               {isLoading ? "Creating account…" : "Sign up"}
             </Button>
             <Typography variant="body2">

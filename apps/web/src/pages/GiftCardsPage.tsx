@@ -30,12 +30,16 @@ import { getErrorMessage } from "../lib/apiError";
 import { StripePaymentForm } from "../components/StripePaymentForm";
 import type { CreateGenericPaymentIntentResponseDTO } from "@showtime/shared";
 
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 const PRESET_AMOUNTS = [250, 500, 1000];
 
 const stripePublishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
-const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : null;
+const stripePromise = stripePublishableKey
+  ? loadStripe(stripePublishableKey)
+  : null;
 
 export function GiftCardsPage() {
+  useDocumentTitle("Gift Cards");
   const user = useAppSelector((s) => s.auth.user);
   const dispatch = useAppDispatch();
 
@@ -46,15 +50,20 @@ export function GiftCardsPage() {
   const [purchasedByEmail, setPurchasedByEmail] = useState("");
   const [message, setMessage] = useState("");
   const [step, setStep] = useState<"form" | "payment" | "success">("form");
-  const [paymentIntentInfo, setPaymentIntentInfo] = useState<CreateGenericPaymentIntentResponseDTO | null>(null);
+  const [paymentIntentInfo, setPaymentIntentInfo] =
+    useState<CreateGenericPaymentIntentResponseDTO | null>(null);
   const [purchasedCode, setPurchasedCode] = useState<string | null>(null);
   const [isPreparing, setIsPreparing] = useState(false);
 
   const [createIntent] = useCreateGiftCardPaymentIntentMutation();
-  const [purchaseGiftCard, { isLoading: isPurchasing }] = usePurchaseGiftCardMutation();
+  const [purchaseGiftCard, { isLoading: isPurchasing }] =
+    usePurchaseGiftCardMutation();
 
   const effectiveAmount = customAmount ? Number(customAmount) : amount;
-  const amountValid = Number.isInteger(effectiveAmount) && effectiveAmount >= 100 && effectiveAmount <= 10000;
+  const amountValid =
+    Number.isInteger(effectiveAmount) &&
+    effectiveAmount >= 100 &&
+    effectiveAmount <= 10000;
   const emailValid = /^\S+@\S+\.\S+$/.test(recipientEmail);
   const purchaserEmailValid = user || /^\S+@\S+\.\S+$/.test(purchasedByEmail);
 
@@ -70,13 +79,20 @@ export function GiftCardsPage() {
       setPurchasedCode(result.code);
       setStep("success");
     } catch (err) {
-      dispatch(showToast({ message: getErrorMessage(err as any), severity: "error" }));
+      dispatch(
+        showToast({ message: getErrorMessage(err as any), severity: "error" }),
+      );
     }
   };
 
   const handleProceedToPayment = async () => {
     if (!amountValid || !emailValid || !purchaserEmailValid) {
-      dispatch(showToast({ message: "Fill in a valid amount and recipient email", severity: "warning" }));
+      dispatch(
+        showToast({
+          message: "Fill in a valid amount and recipient email",
+          severity: "warning",
+        }),
+      );
       return;
     }
     setIsPreparing(true);
@@ -91,7 +107,9 @@ export function GiftCardsPage() {
         await finalizePurchase();
       }
     } catch (err) {
-      dispatch(showToast({ message: getErrorMessage(err as any), severity: "error" }));
+      dispatch(
+        showToast({ message: getErrorMessage(err as any), severity: "error" }),
+      );
     } finally {
       setIsPreparing(false);
     }
@@ -110,18 +128,28 @@ export function GiftCardsPage() {
 
   // --- Redeem a gift card ---
   const [redeemCode, setRedeemCode] = useState("");
-  const [redeemGiftCard, { isLoading: isRedeeming }] = useRedeemGiftCardMutation();
+  const [redeemGiftCard, { isLoading: isRedeeming }] =
+    useRedeemGiftCardMutation();
   const [redeemedValue, setRedeemedValue] = useState<number | null>(null);
 
   const handleRedeem = async () => {
     if (!redeemCode.trim()) return;
     try {
-      const { value } = await redeemGiftCard({ code: redeemCode.trim().toUpperCase() }).unwrap();
+      const { value } = await redeemGiftCard({
+        code: redeemCode.trim().toUpperCase(),
+      }).unwrap();
       setRedeemedValue(value);
       setRedeemCode("");
-      dispatch(showToast({ message: `₹${value} added to your wallet!`, severity: "success" }));
+      dispatch(
+        showToast({
+          message: `₹${value} added to your wallet!`,
+          severity: "success",
+        }),
+      );
     } catch (err) {
-      dispatch(showToast({ message: getErrorMessage(err as any), severity: "error" }));
+      dispatch(
+        showToast({ message: getErrorMessage(err as any), severity: "error" }),
+      );
     }
   };
 
@@ -131,14 +159,20 @@ export function GiftCardsPage() {
         Gift Cards
       </Typography>
       <Typography color="text.secondary" sx={{ mb: 3 }}>
-        Send a ShowTime gift card to a friend, or redeem one you've received into your wallet.
+        Send a ShowTime gift card to a friend, or redeem one you've received
+        into your wallet.
       </Typography>
 
       <Grid container spacing={3}>
         <Grid item xs={12} md={7}>
           <Card>
             <CardContent sx={{ p: { xs: 2.5, sm: 3.5 } }}>
-              <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+              <Stack
+                direction="row"
+                alignItems="center"
+                spacing={1}
+                sx={{ mb: 2 }}
+              >
                 <CardGiftcardIcon color="secondary" />
                 <Typography variant="h6">Send a gift card</Typography>
               </Stack>
@@ -146,17 +180,35 @@ export function GiftCardsPage() {
               {step === "form" && (
                 <Stack spacing={2.5}>
                   <Box>
-                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    <Typography
+                      variant="subtitle2"
+                      color="text.secondary"
+                      gutterBottom
+                    >
                       Amount
                     </Typography>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1.5 }}>
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      flexWrap="wrap"
+                      useFlexGap
+                      sx={{ mb: 1.5 }}
+                    >
                       {PRESET_AMOUNTS.map((preset) => (
                         <Chip
                           key={preset}
                           label={`₹${preset}`}
                           clickable
-                          color={!customAmount && amount === preset ? "secondary" : "default"}
-                          variant={!customAmount && amount === preset ? "filled" : "outlined"}
+                          color={
+                            !customAmount && amount === preset
+                              ? "secondary"
+                              : "default"
+                          }
+                          variant={
+                            !customAmount && amount === preset
+                              ? "filled"
+                              : "outlined"
+                          }
                           onClick={() => {
                             setAmount(preset);
                             setCustomAmount("");
@@ -203,32 +255,58 @@ export function GiftCardsPage() {
                     variant="contained"
                     size="large"
                     onClick={handleProceedToPayment}
-                    disabled={isPreparing || !amountValid || !emailValid || !purchaserEmailValid}
+                    disabled={
+                      isPreparing ||
+                      !amountValid ||
+                      !emailValid ||
+                      !purchaserEmailValid
+                    }
                     sx={{ alignSelf: "flex-start" }}
                   >
-                    {isPreparing ? "Preparing…" : `Continue — ₹${amountValid ? effectiveAmount : 0}`}
+                    {isPreparing
+                      ? "Preparing…"
+                      : `Continue — ₹${amountValid ? effectiveAmount : 0}`}
                   </Button>
                 </Stack>
               )}
 
               {step === "payment" && (
                 <Box>
-                  {(!paymentIntentInfo || (paymentIntentInfo.stripeConfigured === false && isPurchasing)) && (
+                  {(!paymentIntentInfo ||
+                    (paymentIntentInfo.stripeConfigured === false &&
+                      isPurchasing)) && (
                     <Box display="flex" justifyContent="center" py={4}>
                       <CircularProgress size={28} />
                     </Box>
                   )}
 
-                  {paymentIntentInfo && paymentIntentInfo.stripeConfigured === false && !isPurchasing && (
-                    <Alert severity="info">Payments aren't configured on this server — finalizing as a demo purchase…</Alert>
-                  )}
+                  {paymentIntentInfo &&
+                    paymentIntentInfo.stripeConfigured === false &&
+                    !isPurchasing && (
+                      <Alert severity="info">
+                        Payments aren't configured on this server — finalizing
+                        as a demo purchase…
+                      </Alert>
+                    )}
 
-                  {paymentIntentInfo && paymentIntentInfo.stripeConfigured && (
-                    stripePromise ? (
-                      <Elements stripe={stripePromise} options={{ clientSecret: paymentIntentInfo.clientSecret }}>
+                  {paymentIntentInfo &&
+                    paymentIntentInfo.stripeConfigured &&
+                    (stripePromise ? (
+                      <Elements
+                        stripe={stripePromise}
+                        options={{
+                          clientSecret: paymentIntentInfo.clientSecret,
+                        }}
+                      >
                         <StripePaymentForm
-                          onPaid={(paymentIntentId) => finalizePurchase(paymentIntentId)}
-                          onError={(msg) => dispatch(showToast({ message: msg, severity: "error" }))}
+                          onPaid={(paymentIntentId) =>
+                            finalizePurchase(paymentIntentId)
+                          }
+                          onError={(msg) =>
+                            dispatch(
+                              showToast({ message: msg, severity: "error" }),
+                            )
+                          }
                           onBack={() => {
                             setStep("form");
                             setPaymentIntentInfo(null);
@@ -238,10 +316,10 @@ export function GiftCardsPage() {
                       </Elements>
                     ) : (
                       <Alert severity="error">
-                        Stripe is configured server-side but VITE_STRIPE_PUBLISHABLE_KEY is missing here.
+                        Stripe is configured server-side but
+                        VITE_STRIPE_PUBLISHABLE_KEY is missing here.
                       </Alert>
-                    )
-                  )}
+                    ))}
                 </Box>
               )}
 
@@ -255,7 +333,12 @@ export function GiftCardsPage() {
                   </Typography>
                   <Chip
                     label={purchasedCode}
-                    sx={{ fontWeight: 700, letterSpacing: 1, fontSize: "1rem", px: 1 }}
+                    sx={{
+                      fontWeight: 700,
+                      letterSpacing: 1,
+                      fontSize: "1rem",
+                      px: 1,
+                    }}
                     color="secondary"
                   />
                   <Button variant="outlined" onClick={resetForm}>
@@ -270,7 +353,12 @@ export function GiftCardsPage() {
         <Grid item xs={12} md={5}>
           <Card>
             <CardContent sx={{ p: { xs: 2.5, sm: 3.5 } }}>
-              <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+              <Stack
+                direction="row"
+                alignItems="center"
+                spacing={1}
+                sx={{ mb: 2 }}
+              >
                 <RedeemIcon color="secondary" />
                 <Typography variant="h6">Redeem a gift card</Typography>
               </Stack>
@@ -285,7 +373,8 @@ export function GiftCardsPage() {
               ) : (
                 <Stack spacing={2}>
                   <Typography variant="body2" color="text.secondary">
-                    Have a code? Redeem it and the value is credited to your wallet immediately.
+                    Have a code? Redeem it and the value is credited to your
+                    wallet immediately.
                   </Typography>
                   <Stack direction="row" spacing={1}>
                     <TextField
@@ -293,7 +382,9 @@ export function GiftCardsPage() {
                       size="small"
                       fullWidth
                       value={redeemCode}
-                      onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
+                      onChange={(e) =>
+                        setRedeemCode(e.target.value.toUpperCase())
+                      }
                     />
                     <Button
                       variant="contained"
@@ -307,7 +398,8 @@ export function GiftCardsPage() {
                     <>
                       <Divider />
                       <Alert severity="success">
-                        ₹{redeemedValue} added to your wallet. New balance: ₹{user.walletBalance}
+                        ₹{redeemedValue} added to your wallet. New balance: ₹
+                        {user.walletBalance}
                       </Alert>
                     </>
                   )}

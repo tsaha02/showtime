@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Covers the static/marketing routes only. Movie and event detail pages
+  (/movies/:id, /events/:id) are intentionally NOT listed here — they're
+  created/deleted dynamically through the admin panel, so a static file
+  can't stay accurate; generating those entries needs a small build- or
+  request-time script that reads the current catalog from the API, which
+  is real, scoped follow-up work rather than something to fake here with
+  a stale list of IDs. Replace https://your-domain.example with the
+  actual deployed domain before this is useful to a real crawler.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://your-domain.example/</loc>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://your-domain.example/search-movies</loc>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://your-domain.example/events</loc>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://your-domain.example/offers</loc>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://your-domain.example/gift-cards</loc>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://your-domain.example/about</loc>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://your-domain.example/contact</loc>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://your-domain.example/terms</loc>
+    <priority>0.2</priority>
+  </url>
+  <url>
+    <loc>https://your-domain.example/privacy</loc>
+    <priority>0.2</priority>
+  </url>
+  <url>
+    <loc>https://your-domain.example/refund-policy</loc>
+    <priority>0.2</priority>
+  </url>
+</urlset>

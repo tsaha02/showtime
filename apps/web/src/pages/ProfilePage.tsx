@@ -18,20 +18,39 @@ import {
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
 import MilitaryTechIcon from "@mui/icons-material/MilitaryTech";
-import { useGetWalletTransactionsQuery, useGetMyBookingsQuery } from "../store/api";
+import {
+  useGetWalletTransactionsQuery,
+  useGetMyBookingsQuery,
+} from "../store/api";
 import { useAppSelector } from "../store/hooks";
 import { getErrorMessage } from "../lib/apiError";
 import type { WalletTransactionDTO } from "@showtime/shared";
 
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 // Mirrors apps/api/src/services/loyaltyService.ts's tierForBookingCount
 // exactly (BRONZE < 5, SILVER 5-14, GOLD 15+) — there's no dedicated
 // endpoint for this yet, so it's computed client-side, purely for
 // display, from the same confirmed-booking count MyBookingsPage already
 // fetches via /bookings/mine.
 const LOYALTY_TIERS = [
-  { tier: "GOLD" as const, minBookings: 15, cashbackPercent: 3, color: "#f5c518" },
-  { tier: "SILVER" as const, minBookings: 5, cashbackPercent: 1, color: "#c0c0c8" },
-  { tier: "BRONZE" as const, minBookings: 0, cashbackPercent: 0, color: "#cd7f32" },
+  {
+    tier: "GOLD" as const,
+    minBookings: 15,
+    cashbackPercent: 3,
+    color: "#f5c518",
+  },
+  {
+    tier: "SILVER" as const,
+    minBookings: 5,
+    cashbackPercent: 1,
+    color: "#c0c0c8",
+  },
+  {
+    tier: "BRONZE" as const,
+    minBookings: 0,
+    cashbackPercent: 0,
+    color: "#cd7f32",
+  },
 ];
 
 function tierForBookingCount(confirmedBookingCount: number) {
@@ -46,14 +65,22 @@ const REASON_LABELS: Record<WalletTransactionDTO["reason"], string> = {
 };
 
 export function ProfilePage() {
+  useDocumentTitle("Profile");
   const user = useAppSelector((s) => s.auth.user);
-  const { data: transactions, isLoading, isError, error } = useGetWalletTransactionsQuery();
+  const {
+    data: transactions,
+    isLoading,
+    isError,
+    error,
+  } = useGetWalletTransactionsQuery();
   const { data: bookings } = useGetMyBookingsQuery();
   const [copied, setCopied] = useState(false);
 
   if (!user) return null;
 
-  const confirmedBookingCount = (bookings ?? []).filter((b) => b.status === "CONFIRMED").length;
+  const confirmedBookingCount = (bookings ?? []).filter(
+    (b) => b.status === "CONFIRMED",
+  ).length;
   const loyalty = tierForBookingCount(confirmedBookingCount);
   // Smallest threshold still above the current count — i.e. the next tier
   // up, not just the first one LOYALTY_TIERS happens to list (that array
@@ -92,13 +119,23 @@ export function ProfilePage() {
 
           <Card sx={{ mb: 3 }}>
             <CardContent>
-              <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+              <Stack
+                direction="row"
+                alignItems="center"
+                spacing={1}
+                sx={{ mb: 1 }}
+              >
                 <MilitaryTechIcon sx={{ color: loyalty.color }} />
                 <Typography variant="h6">Loyalty tier</Typography>
                 <Chip
                   label={loyalty.tier}
                   size="small"
-                  sx={{ bgcolor: loyalty.color, color: "#1a1a1a", fontWeight: 700, ml: "auto" }}
+                  sx={{
+                    bgcolor: loyalty.color,
+                    color: "#1a1a1a",
+                    fontWeight: 700,
+                    ml: "auto",
+                  }}
                 />
               </Stack>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
@@ -108,8 +145,12 @@ export function ProfilePage() {
               </Typography>
               {nextTier && (
                 <Typography variant="caption" color="text.secondary">
-                  {nextTier.minBookings - confirmedBookingCount} more confirmed booking
-                  {nextTier.minBookings - confirmedBookingCount > 1 ? "s" : ""} to reach {nextTier.tier}.
+                  {nextTier.minBookings - confirmedBookingCount} more confirmed
+                  booking
+                  {nextTier.minBookings - confirmedBookingCount > 1
+                    ? "s"
+                    : ""}{" "}
+                  to reach {nextTier.tier}.
                 </Typography>
               )}
             </CardContent>
@@ -121,12 +162,18 @@ export function ProfilePage() {
                 Refer a friend
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Share this code — you and your friend each get ₹100 when they complete their first booking.
+                Share this code — you and your friend each get ₹100 when they
+                complete their first booking.
               </Typography>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <Chip
                   label={user.referralCode}
-                  sx={{ fontWeight: 700, letterSpacing: 1, fontSize: "1rem", px: 1 }}
+                  sx={{
+                    fontWeight: 700,
+                    letterSpacing: 1,
+                    fontSize: "1rem",
+                    px: 1,
+                  }}
                 />
                 <Button
                   size="small"
@@ -144,17 +191,31 @@ export function ProfilePage() {
         <Grid item xs={12} md={6}>
           <Card>
             <CardContent>
-              <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+              <Stack
+                direction="row"
+                alignItems="center"
+                spacing={1}
+                sx={{ mb: 0.5 }}
+              >
                 <AccountBalanceWalletOutlinedIcon color="secondary" />
                 <Typography variant="h6">Wallet</Typography>
               </Stack>
-              <Typography variant="h4" color="secondary.main" fontWeight={800} sx={{ mb: 2 }}>
+              <Typography
+                variant="h4"
+                color="secondary.main"
+                fontWeight={800}
+                sx={{ mb: 2 }}
+              >
                 ₹{user.walletBalance}
               </Typography>
 
               <Divider sx={{ mb: 2 }} />
 
-              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+              <Typography
+                variant="subtitle2"
+                color="text.secondary"
+                gutterBottom
+              >
                 Wallet history
               </Typography>
 
@@ -163,9 +224,16 @@ export function ProfilePage() {
                   <CircularProgress size={24} />
                 </Box>
               )}
-              {isError && <Alert severity="error">{getErrorMessage(error as any) ?? "Could not load wallet history"}</Alert>}
+              {isError && (
+                <Alert severity="error">
+                  {getErrorMessage(error as any) ??
+                    "Could not load wallet history"}
+                </Alert>
+              )}
               {transactions && transactions.length === 0 && (
-                <Typography color="text.secondary">No wallet transactions yet.</Typography>
+                <Typography color="text.secondary">
+                  No wallet transactions yet.
+                </Typography>
               )}
               {transactions && transactions.length > 0 && (
                 <List disablePadding>
@@ -183,8 +251,7 @@ export function ProfilePage() {
                         color={tx.amount >= 0 ? "success.main" : "error.main"}
                         fontWeight={700}
                       >
-                        {tx.amount >= 0 ? "+" : ""}
-                        ₹{tx.amount}
+                        {tx.amount >= 0 ? "+" : ""}₹{tx.amount}
                       </Typography>
                     </ListItem>
                   ))}

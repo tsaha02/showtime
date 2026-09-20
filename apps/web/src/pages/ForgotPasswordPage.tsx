@@ -1,10 +1,21 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, Link as RouterLink } from "react-router-dom";
-import { Box, TextField, Button, Typography, Paper, Alert, Stack, Link } from "@mui/material";
+import {
+  Box,
+  TextField,
+  Button,
+  Typography,
+  Paper,
+  Alert,
+  Stack,
+  Link,
+} from "@mui/material";
 import { useForgotPasswordMutation } from "../store/api";
 import { AuthPageLayout } from "../components/AuthPageLayout";
 
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 export function ForgotPasswordPage() {
+  useDocumentTitle("Forgot Password");
   const [email, setEmail] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
@@ -54,7 +65,8 @@ export function ForgotPasswordPage() {
           <Box component="form" onSubmit={handleSubmit} noValidate>
             <Stack spacing={2} mt={1}>
               <Typography color="text.secondary">
-                Enter your account email and we'll send you a 6-digit reset code.
+                Enter your account email and we'll send you a 6-digit reset
+                code.
               </Typography>
               {formError && <Alert severity="error">{formError}</Alert>}
               <TextField
@@ -65,7 +77,12 @@ export function ForgotPasswordPage() {
                 required
                 fullWidth
               />
-              <Button type="submit" variant="contained" size="large" disabled={isLoading}>
+              <Button
+                type="submit"
+                variant="contained"
+                size="large"
+                disabled={isLoading}
+              >
                 {isLoading ? "Sending…" : "Send reset code"}
               </Button>
               <Typography variant="body2">

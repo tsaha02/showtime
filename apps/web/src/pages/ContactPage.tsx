@@ -1,9 +1,18 @@
 import { useState, type FormEvent } from "react";
-import { Box, Typography, Stack, TextField, Button, Alert } from "@mui/material";
+import {
+  Box,
+  Typography,
+  Stack,
+  TextField,
+  Button,
+  Alert,
+} from "@mui/material";
 import { useAppDispatch } from "../store/hooks";
 import { showToast } from "../store/slices/uiSlice";
 
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 export function ContactPage() {
+  useDocumentTitle("Contact");
   const dispatch = useAppDispatch();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -35,11 +44,18 @@ export function ContactPage() {
         .
       </Typography>
       <Alert severity="info" sx={{ mb: 3 }}>
-        This is a demo project — no live support desk is staffed, but the form below is wired for
-        real (client-side validation and all), it just doesn't send anywhere.
+        This is a demo project — no live support desk is staffed, but the form
+        below is wired for real (client-side validation and all), it just
+        doesn't send anywhere.
       </Alert>
       <Stack component="form" onSubmit={handleSubmit} spacing={2}>
-        <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} required fullWidth />
+        <TextField
+          label="Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+          fullWidth
+        />
         <TextField
           label="Email"
           type="email"
@@ -57,7 +73,12 @@ export function ContactPage() {
           multiline
           minRows={4}
         />
-        <Button type="submit" variant="contained" size="large" sx={{ alignSelf: "flex-start" }}>
+        <Button
+          type="submit"
+          variant="contained"
+          size="large"
+          sx={{ alignSelf: "flex-start" }}
+        >
           Send message
         </Button>
       </Stack>

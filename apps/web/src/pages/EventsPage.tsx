@@ -20,10 +20,19 @@ import { EventCard } from "../components/EventCard";
 import { eventCategoryLabel } from "../lib/eventCategoryLabel";
 import type { EventCategory } from "@showtime/shared";
 
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 const ALL = "__all__";
-const CATEGORIES: EventCategory[] = ["CONCERT", "COMEDY", "SPORTS", "THEATRE_PLAY", "WORKSHOP", "OTHER"];
+const CATEGORIES: EventCategory[] = [
+  "CONCERT",
+  "COMEDY",
+  "SPORTS",
+  "THEATRE_PLAY",
+  "WORKSHOP",
+  "OTHER",
+];
 
 export function EventsPage() {
+  useDocumentTitle("Events");
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebouncedValue(search);
   const [category, setCategory] = useState(ALL);
@@ -49,7 +58,8 @@ export function EventsPage() {
         Events
       </Typography>
       <Typography color="text.secondary" sx={{ mb: 3 }}>
-        Concerts, comedy nights, plays and more — booked the exact same way as a movie showtime.
+        Concerts, comedy nights, plays and more — booked the exact same way as a
+        movie showtime.
       </Typography>
 
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mb: 3 }}>
@@ -84,7 +94,9 @@ export function EventsPage() {
         </TextField>
       </Stack>
 
-      {isError && <Alert severity="error">{getErrorMessage(error as any)}</Alert>}
+      {isError && (
+        <Alert severity="error">{getErrorMessage(error as any)}</Alert>
+      )}
 
       {!isLoading && !isError && events?.length === 0 && (
         <Box
@@ -97,11 +109,15 @@ export function EventsPage() {
             borderRadius: 3,
           }}
         >
-          <TheaterComedyIcon sx={{ fontSize: 48, color: "text.secondary", mb: 1 }} />
+          <TheaterComedyIcon
+            sx={{ fontSize: 48, color: "text.secondary", mb: 1 }}
+          />
           <Typography variant="h6" gutterBottom>
             No events match your filters
           </Typography>
-          <Typography color="text.secondary">Try clearing the search or category.</Typography>
+          <Typography color="text.secondary">
+            Try clearing the search or category.
+          </Typography>
         </Box>
       )}
 
@@ -109,7 +125,11 @@ export function EventsPage() {
         {isLoading &&
           Array.from({ length: 6 }).map((_, i) => (
             <Grid item xs={6} sm={4} md={3} lg={2.4} key={i}>
-              <Skeleton variant="rounded" height={280} sx={{ borderRadius: 3 }} />
+              <Skeleton
+                variant="rounded"
+                height={280}
+                sx={{ borderRadius: 3 }}
+              />
               <Skeleton variant="text" sx={{ mt: 1 }} />
               <Skeleton variant="text" width="60%" />
             </Grid>

@@ -25,6 +25,8 @@ import { useAppSelector, useAppDispatch } from "../store/hooks";
 import { setSelectedCity } from "../store/slices/locationSlice";
 import { getErrorMessage } from "../lib/apiError";
 import { eventCategoryLabel } from "../lib/eventCategoryLabel";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import { JsonLd } from "../components/JsonLd";
 
 export function EventDetailPage() {
   const { id = "" } = useParams();
@@ -39,6 +41,7 @@ export function EventDetailPage() {
   const { data: indiaCities } = useGetIndiaCitiesQuery();
 
   const { data: event, isLoading, isError, error } = useGetEventQuery(id);
+  useDocumentTitle(event?.title ?? "Event");
   const { data: sessions } = useGetEventSessionsQuery({ eventId: id, city: cityFilter ?? undefined }, { skip: !id });
 
   const [formatFilter, setFormatFilter] = useState("");
@@ -81,8 +84,29 @@ export function EventDetailPage() {
     return <Alert severity="error">{getErrorMessage(error as any) ?? "Event not found"}</Alert>;
   }
 
+  const nextSession = sessions?.[0];
+
   return (
     <Box>
+      <JsonLd
+        data={{
+          "@context": "https://schema.org",
+          "@type": "Event",
+          name: event.title,
+          description: event.description,
+          image: event.posterUrl ?? undefined,
+          startDate: nextSession?.startTime,
+          eventStatus: "https://schema.org/EventScheduled",
+          eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+          location: nextSession
+            ? {
+                "@type": "Place",
+                name: nextSession.theatreName,
+                address: nextSession.theatreCity,
+              }
+            : undefined,
+        }}
+      />
       <Grid container spacing={4}>
         <Grid item xs={12} sm={5} md={4}>
           <Box

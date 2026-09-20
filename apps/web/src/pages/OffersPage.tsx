@@ -1,11 +1,25 @@
 import { useState } from "react";
-import { Box, Typography, Card, CardContent, Grid, Chip, Stack, CircularProgress, Alert, IconButton, Tooltip } from "@mui/material";
+import {
+  Box,
+  Typography,
+  Card,
+  CardContent,
+  Grid,
+  Chip,
+  Stack,
+  CircularProgress,
+  Alert,
+  IconButton,
+  Tooltip,
+} from "@mui/material";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import LocalOfferIcon from "@mui/icons-material/LocalOffer";
 import { useGetOffersQuery } from "../store/api";
 import { getErrorMessage } from "../lib/apiError";
 
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 export function OffersPage() {
+  useDocumentTitle("Offers & Deals");
   const { data: offers, isLoading, isError, error } = useGetOffersQuery();
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
@@ -13,7 +27,10 @@ export function OffersPage() {
     try {
       await navigator.clipboard.writeText(code);
       setCopiedCode(code);
-      setTimeout(() => setCopiedCode((prev) => (prev === code ? null : prev)), 2000);
+      setTimeout(
+        () => setCopiedCode((prev) => (prev === code ? null : prev)),
+        2000,
+      );
     } catch {
       // Clipboard access denied — nothing more we can do.
     }
@@ -33,14 +50,31 @@ export function OffersPage() {
           <CircularProgress />
         </Box>
       )}
-      {isError && <Alert severity="error">{getErrorMessage(error as any) ?? "Could not load offers"}</Alert>}
+      {isError && (
+        <Alert severity="error">
+          {getErrorMessage(error as any) ?? "Could not load offers"}
+        </Alert>
+      )}
       {offers && offers.length === 0 && (
-        <Box sx={{ textAlign: "center", py: 8, px: 2, border: "1px dashed", borderColor: "divider", borderRadius: 3 }}>
-          <LocalOfferIcon sx={{ fontSize: 48, color: "text.secondary", mb: 1 }} />
+        <Box
+          sx={{
+            textAlign: "center",
+            py: 8,
+            px: 2,
+            border: "1px dashed",
+            borderColor: "divider",
+            borderRadius: 3,
+          }}
+        >
+          <LocalOfferIcon
+            sx={{ fontSize: 48, color: "text.secondary", mb: 1 }}
+          />
           <Typography variant="h6" gutterBottom>
             No active offers right now
           </Typography>
-          <Typography color="text.secondary">Check back soon for new deals.</Typography>
+          <Typography color="text.secondary">
+            Check back soon for new deals.
+          </Typography>
         </Box>
       )}
 
@@ -61,21 +95,40 @@ export function OffersPage() {
                   variant="h3"
                   fontWeight={800}
                   color="secondary.main"
-                  sx={{ fontSize: { xs: "2.2rem", sm: "2.6rem" }, lineHeight: 1 }}
+                  sx={{
+                    fontSize: { xs: "2.2rem", sm: "2.6rem" },
+                    lineHeight: 1,
+                  }}
                 >
-                  {offer.type === "PERCENT" ? `${offer.value}%` : `₹${offer.value}`}
+                  {offer.type === "PERCENT"
+                    ? `${offer.value}%`
+                    : `₹${offer.value}`}
                 </Typography>
                 <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 2 }}>
                   OFF your booking
                 </Typography>
 
-                <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  spacing={1}
+                  sx={{ mb: 1.5 }}
+                >
                   <Chip
                     label={offer.code}
-                    sx={{ fontWeight: 700, letterSpacing: 1, bgcolor: "background.default" }}
+                    sx={{
+                      fontWeight: 700,
+                      letterSpacing: 1,
+                      bgcolor: "background.default",
+                    }}
                   />
-                  <Tooltip title={copiedCode === offer.code ? "Copied!" : "Copy code"}>
-                    <IconButton size="small" onClick={() => handleCopy(offer.code)}>
+                  <Tooltip
+                    title={copiedCode === offer.code ? "Copied!" : "Copy code"}
+                  >
+                    <IconButton
+                      size="small"
+                      onClick={() => handleCopy(offer.code)}
+                    >
                       <ContentCopyIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>

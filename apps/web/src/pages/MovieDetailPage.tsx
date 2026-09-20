@@ -48,6 +48,8 @@ import { useAppSelector, useAppDispatch } from "../store/hooks";
 import { setSelectedCity } from "../store/slices/locationSlice";
 import { showToast } from "../store/slices/uiSlice";
 import { getErrorMessage } from "../lib/apiError";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import { JsonLd } from "../components/JsonLd";
 import type { RatingDTO } from "@showtime/shared";
 
 export function MovieDetailPage() {
@@ -66,6 +68,7 @@ export function MovieDetailPage() {
   const { data: indiaCities } = useGetIndiaCitiesQuery();
 
   const { data: movie, isLoading, isError, error } = useGetMovieQuery(id);
+  useDocumentTitle(movie?.title ?? "Movie");
   const { data: similarMovies } = useGetSimilarMoviesQuery(id, { skip: !id });
   const { data: shows } = useGetMovieShowsQuery({ movieId: id, city: cityFilter ?? undefined });
   const [ratingsPage, setRatingsPage] = useState(1);
@@ -182,6 +185,26 @@ export function MovieDetailPage() {
 
   return (
     <Box>
+      <JsonLd
+        data={{
+          "@context": "https://schema.org",
+          "@type": "Movie",
+          name: movie.title,
+          description: movie.description,
+          image: movie.posterUrl ?? undefined,
+          genre: movie.genre,
+          datePublished: movie.releaseDate,
+          aggregateRating:
+            movie.ratingCount > 0
+              ? {
+                  "@type": "AggregateRating",
+                  ratingValue: movie.averageRating,
+                  ratingCount: movie.ratingCount,
+                  bestRating: 5,
+                }
+              : undefined,
+        }}
+      />
       <Grid container spacing={4}>
         <Grid item xs={12} sm={5} md={4}>
           <Box
