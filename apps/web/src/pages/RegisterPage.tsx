@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate, Link as RouterLink } from "react-router-dom";
+import { useNavigate, useSearchParams, Link as RouterLink } from "react-router-dom";
 import { Box, TextField, Button, Typography, Paper, Alert, Stack } from "@mui/material";
 import { useRegisterMutation } from "../store/api";
 import { useAppDispatch } from "../store/hooks";
@@ -9,10 +9,14 @@ import { AuthPageLayout } from "../components/AuthPageLayout";
 import { PasswordField } from "../components/PasswordField";
 
 export function RegisterPage() {
+  const [searchParams] = useSearchParams();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  // Pre-filled from a referral share link (e.g. /register?ref=ABCD1234) but
+  // still freely editable/clearable by the user.
+  const [referralCode, setReferralCode] = useState(() => searchParams.get("ref") ?? "");
   const [formError, setFormError] = useState<string | null>(null);
   const [register, { isLoading, error }] = useRegisterMutation();
   const dispatch = useAppDispatch();
@@ -42,7 +46,13 @@ export function RegisterPage() {
     }
 
     try {
-      const user = await register({ name, email, password, confirmPassword }).unwrap();
+      const user = await register({
+        name,
+        email,
+        password,
+        confirmPassword,
+        referralCode: referralCode.trim() || undefined,
+      }).unwrap();
       dispatch(setUser(user));
       navigate("/verify-email", { replace: true, state: { email: user.email } });
     } catch {
@@ -84,6 +94,13 @@ export function RegisterPage() {
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
               fullWidth
+            />
+            <TextField
+              label="Referral code (optional)"
+              value={referralCode}
+              onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+              fullWidth
+              helperText="Got a code from a friend? Enter it here — you both get ₹100 after your first booking."
             />
             <Button type="submit" variant="contained" size="large" disabled={isLoading}>
               {isLoading ? "Creating account…" : "Sign up"}

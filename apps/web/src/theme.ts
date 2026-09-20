@@ -51,6 +51,10 @@ export const theme = createTheme({
           backgroundImage:
             "radial-gradient(ellipse 1200px 600px at 50% -10%, rgba(255,61,87,0.10), transparent), radial-gradient(ellipse 800px 500px at 100% 0%, rgba(245,197,24,0.06), transparent)",
           backgroundAttachment: "fixed",
+          // BrandLogo's "cut-out" notches punch through to whatever sits
+          // behind them — this app is always dark-mode, so that's always
+          // the page background, never a light color.
+          "--brand-notch-bg": "#0a0a0d",
         },
       },
     },

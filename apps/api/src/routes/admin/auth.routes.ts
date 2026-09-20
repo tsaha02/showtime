@@ -49,6 +49,8 @@ router.get(
         email: user!.email,
         role: user!.role,
         emailVerified: user!.emailVerified,
+        walletBalance: user!.walletBalance,
+        referralCode: user!.referralCode,
       },
     });
   }),

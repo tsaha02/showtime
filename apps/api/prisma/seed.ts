@@ -2,15 +2,23 @@ import { PrismaClient, SeatCategory } from "@prisma/client";
 import bcrypt from "bcrypt";
 import { generateDefaultSeatLayout } from "../src/utils/seatLayoutGenerator";
 import { DEFAULT_SEAT_PRICES as PRICES } from "../src/config/defaultPrices";
+import { generateReferralCode } from "../src/utils/referralCode";
+import { getExternalMovieByTitle } from "../src/services/externalMovieService";
 
 const prisma = new PrismaClient();
 
 async function main() {
   console.log("Seeding ShowTime...");
 
+  await prisma.ratingVote.deleteMany();
   await prisma.rating.deleteMany();
+  await prisma.bookingFoodItem.deleteMany();
+  await prisma.walletTransaction.deleteMany();
   await prisma.bookingSeat.deleteMany();
   await prisma.booking.deleteMany();
+  await prisma.coupon.deleteMany();
+  await prisma.foodItem.deleteMany();
+  await prisma.waitlist.deleteMany();
   await prisma.showSeatPrice.deleteMany();
   await prisma.show.deleteMany();
   await prisma.seat.deleteMany();
@@ -18,6 +26,7 @@ async function main() {
   await prisma.screen.deleteMany();
   await prisma.theatre.deleteMany();
   await prisma.movie.deleteMany();
+  await prisma.event.deleteMany();
   await prisma.user.deleteMany();
 
   // --- Users ---
@@ -32,6 +41,7 @@ async function main() {
       passwordHash: adminPasswordHash,
       role: "ADMIN",
       emailVerified: true,
+      referralCode: generateReferralCode(),
     },
   });
 
@@ -43,6 +53,7 @@ async function main() {
       passwordHash: demoPasswordHash,
       role: "CUSTOMER",
       emailVerified: true,
+      referralCode: generateReferralCode(),
     },
   });
   await prisma.user.create({
@@ -52,47 +63,65 @@ async function main() {
       passwordHash: demoPasswordHash,
       role: "CUSTOMER",
       emailVerified: true,
+      referralCode: generateReferralCode(),
     },
   });
 
   // --- Movies ---
-  const movieData = [
-    {
-      title: "The Last Signal",
-      description:
-        "A deep-space communications officer intercepts a message that shouldn't exist, and has to decide whether to answer it.",
-      durationMins: 128,
-      genre: "Sci-Fi",
-      posterUrl: "https://picsum.photos/seed/last-signal/400/600",
-      releaseDate: new Date("2026-06-12"),
-    },
-    {
-      title: "Comedy Night Live",
-      description: "Four stand-up comics, one green room, and a blackout thirty minutes before showtime.",
-      durationMins: 95,
-      genre: "Comedy",
-      posterUrl: "https://picsum.photos/seed/comedy-night/400/600",
-      releaseDate: new Date("2026-07-01"),
-    },
-    {
-      title: "Shadows of Kolkata",
-      description: "A detective drama following one long night through the alleys of a city that never sleeps.",
-      durationMins: 142,
-      genre: "Drama",
-      posterUrl: "https://picsum.photos/seed/shadows-kolkata/400/600",
-      releaseDate: new Date("2026-05-20"),
-    },
-    {
-      title: "Turbo Chase",
-      description: "An ex-stunt driver is pulled back in for one last, impossible heist.",
-      durationMins: 110,
-      genre: "Action",
-      posterUrl: "https://picsum.photos/seed/turbo-chase/400/600",
-      releaseDate: new Date("2026-08-15"),
-    },
-  ];
-  const movies = await Promise.all(movieData.map((m) => prisma.movie.create({ data: m })));
-  const [lastSignal, comedyNight, shadowsKolkata, turboChase] = movies;
+  // Seeded with REAL movie data (real posters, synopses, genres, runtimes)
+  // resolved live through OMDb — the same mechanism as the admin's
+  // "Populate Popular Movies" bulk-import (see externalMovieService.ts
+  // and curatedMovieTitles.ts), just run once here so the catalog looks
+  // like a real, populated product from the very first `npm run db:seed`
+  // rather than needing an admin to click "import" first. One title per
+  // genre this app's demo narrative leans on (sci-fi flagship for the
+  // "past show, rate it now" demo; comedy/drama/action for the rest).
+  // Falls back to a hand-written placeholder if OMDb is unreachable
+  // (no network, bad/missing API key) so seeding never hard-fails.
+  const flagshipTitles = [
+    { title: "Inception", fallbackGenre: "Sci-Fi" },
+    { title: "3 Idiots", fallbackGenre: "Comedy" },
+    { title: "Parasite", fallbackGenre: "Drama" },
+    { title: "Mad Max: Fury Road", fallbackGenre: "Action" },
+  ] as const;
+
+  async function seedRealMovie(title: string, fallbackGenre: string) {
+    try {
+      const details = await getExternalMovieByTitle(title);
+      if (details) {
+        return prisma.movie.create({
+          data: {
+            title: details.title,
+            description: details.overview || `${details.title} — now showing.`,
+            durationMins: details.durationMins ?? 120,
+            genre: details.genre,
+            posterUrl: details.posterUrl,
+            releaseDate: details.releaseDate ? new Date(details.releaseDate) : new Date(),
+            externalId: details.externalId,
+          },
+        });
+      }
+    } catch (err) {
+      console.warn(`Could not fetch "${title}" from OMDb, using a placeholder instead:`, err);
+    }
+    return prisma.movie.create({
+      data: {
+        title,
+        description: `${title} — now showing.`,
+        durationMins: 120,
+        genre: fallbackGenre,
+        posterUrl: null,
+        releaseDate: new Date(),
+      },
+    });
+  }
+
+  // Sequential (not Promise.all) — gentle on OMDb's free-tier rate limit.
+  const movies: Awaited<ReturnType<typeof seedRealMovie>>[] = [];
+  for (const { title, fallbackGenre } of flagshipTitles) {
+    movies.push(await seedRealMovie(title, fallbackGenre));
+  }
+  const [flagshipMovie, movie2, movie3, movie4] = movies;
 
   // --- Theatres & screens, across many Indian cities ---
   // No free public API exists for real theatre/showtime listings (that's
@@ -144,9 +173,19 @@ async function main() {
   const now = new Date();
   const hours = (n: number) => n * 60 * 60 * 1000;
 
-  async function createShow(movieId: string, screenId: string, startTime: Date, durationMins: number) {
+  const FORMATS = ["2D", "3D", "IMAX"];
+  const LANGUAGES = ["English", "Hindi", "Bengali"];
+
+  async function createShow(
+    movieId: string,
+    screenId: string,
+    startTime: Date,
+    durationMins: number,
+    format: string = "2D",
+    language: string = "English",
+  ) {
     const endTime = new Date(startTime.getTime() + durationMins * 60_000);
-    const show = await prisma.show.create({ data: { movieId, screenId, startTime, endTime } });
+    const show = await prisma.show.create({ data: { movieId, screenId, startTime, endTime, format, language } });
     await prisma.showSeatPrice.createMany({
       data: (Object.keys(PRICES) as SeatCategory[]).map((category) => ({
         showId: show.id,
@@ -162,7 +201,7 @@ async function main() {
 
   // A show that already ended, specifically so ratings can be demoed
   // immediately without booking-and-waiting.
-  const pastShow = await createShow(lastSignal.id, metro.screen1, new Date(now.getTime() - hours(50)), lastSignal.durationMins);
+  const pastShow = await createShow(flagshipMovie.id, metro.screen1, new Date(now.getTime() - hours(50)), flagshipMovie.durationMins);
 
   // One future show per screen across every theatre/city, cycling
   // through the seeded movie list — this is what makes every seeded city
@@ -173,7 +212,7 @@ async function main() {
   // "Populate Popular Movies" bulk-import action against OMDb (see
   // routes/admin/externalMovies.routes.ts), which needs a live API key
   // and network access the seed script can't assume it has.
-  const seedMovies = [lastSignal, comedyNight, shadowsKolkata, turboChase];
+  const seedMovies = [flagshipMovie, movie2, movie3, movie4];
   const futureShows: Awaited<ReturnType<typeof createShow>>[] = [];
   let movieCursor = 0;
   let hourCursor = 2;
@@ -181,14 +220,76 @@ async function main() {
     const screens = screensByTheatreKey[t.key];
     for (const screenId of [screens.screen1, screens.screen2]) {
       const movie = seedMovies[movieCursor % seedMovies.length];
+      const format = FORMATS[movieCursor % FORMATS.length];
+      const language = LANGUAGES[movieCursor % LANGUAGES.length];
       movieCursor++;
       hourCursor += 3;
-      futureShows.push(await createShow(movie.id, screenId, new Date(now.getTime() + hours(hourCursor)), movie.durationMins));
+      futureShows.push(
+        await createShow(movie.id, screenId, new Date(now.getTime() + hours(hourCursor)), movie.durationMins, format, language),
+      );
     }
   }
 
+  // --- Events (a second bookable content type — see the `Event`/`Show`
+  // comments in schema.prisma) — a small, fixed set of fictional events
+  // (unlike movies, there's no free real-world "what's playing at this
+  // comedy club" data source to resolve against, same reasoning as
+  // theatres' seat layouts/showtimes) scheduled onto a couple of the
+  // same screens already seeded above. Reuses `createShow`'s exact
+  // seat-pricing logic via a thin wrapper, since a Show row for an
+  // Event needs the identical ShowSeatPrice rows a movie Show does.
+  async function createEventSession(eventId: string, screenId: string, startTime: Date, durationMins: number) {
+    const endTime = new Date(startTime.getTime() + durationMins * 60_000);
+    const session = await prisma.show.create({
+      data: { kind: "EVENT", eventId, screenId, startTime, endTime },
+    });
+    await prisma.showSeatPrice.createMany({
+      data: (Object.keys(PRICES) as SeatCategory[]).map((category) => ({
+        showId: session.id,
+        category,
+        price: PRICES[category],
+      })),
+    });
+    return session;
+  }
+
+  const eventData = [
+    {
+      title: "Live Comedy Night: Open Mic Royale",
+      description: "Five stand-up comics, one stage, zero notes — a rowdy, unscripted night of new material.",
+      category: "COMEDY" as const,
+      durationMins: 90,
+      posterUrl: null,
+    },
+    {
+      title: "Acoustic Sessions: Under the City Lights",
+      description: "An intimate acoustic concert featuring independent singer-songwriters from across the city.",
+      category: "CONCERT" as const,
+      durationMins: 120,
+      posterUrl: null,
+    },
+    {
+      title: "A Midsummer Night's Dream — Live on Stage",
+      description: "A modern staging of Shakespeare's classic comedy, performed by a local theatre troupe.",
+      category: "THEATRE_PLAY" as const,
+      durationMins: 150,
+      posterUrl: null,
+    },
+  ];
+  const events = await Promise.all(eventData.map((e) => prisma.event.create({ data: e })));
+
+  const indiranagar = screensByTheatreKey.indiranagarImax;
+  const hazratganj = screensByTheatreKey.hazratganjTalkies;
+  let eventHourCursor = 5;
+  for (const event of events) {
+    eventHourCursor += 6;
+    await createEventSession(event.id, indiranagar.screen1, new Date(now.getTime() + hours(eventHourCursor)), event.durationMins);
+    eventHourCursor += 6;
+    await createEventSession(event.id, hazratganj.screen2, new Date(now.getTime() + hours(eventHourCursor)), event.durationMins);
+  }
+
   // --- Historical CONFIRMED booking against the past show, so the demo
-  // user can rate `lastSignal` immediately. ---
+  // user can rate `flagshipMovie` immediately. ---
   const pastShowSeats = await prisma.seat.findMany({
     where: { layout: { screenId: metro.screen1 } },
     take: 2,
@@ -223,7 +324,7 @@ async function main() {
   // average rating and review count.
   await prisma.rating.create({
     data: {
-      movieId: lastSignal.id,
+      movieId: flagshipMovie.id,
       userId: demoUser.id,
       stars: 5,
       comment: "Genuinely tense — the ending re-contextualizes the whole first act.",
@@ -259,13 +360,44 @@ async function main() {
     })),
   });
 
+  // Demo coupons, so the checkout coupon field has something real to try
+  // immediately without needing to create one via the admin panel first.
+  await prisma.coupon.createMany({
+    data: [
+      { code: "WELCOME10", type: "PERCENT", value: 10, maxUses: null, active: true },
+      { code: "FLAT50", type: "FLAT", value: 50, maxUses: 100, active: true },
+    ],
+  });
+
+  // Demo F&B menu, so the checkout food step has real items to add
+  // immediately without needing to create any via the admin panel first.
+  await prisma.foodItem.createMany({
+    data: [
+      { name: "Regular Popcorn", description: "Salted popcorn, regular tub", price: 180, category: "SNACK" },
+      { name: "Large Popcorn", description: "Salted popcorn, large tub", price: 280, category: "SNACK" },
+      { name: "Nachos with Cheese Dip", description: "Crispy nachos with cheese dip", price: 220, category: "SNACK" },
+      { name: "Coca-Cola (Regular)", description: "500ml", price: 120, category: "DRINK" },
+      { name: "Coca-Cola (Large)", description: "750ml", price: 160, category: "DRINK" },
+      { name: "Mineral Water", description: "1L bottle", price: 60, category: "DRINK" },
+      {
+        name: "Popcorn + Coke Combo",
+        description: "Regular popcorn with a regular Coca-Cola",
+        price: 260,
+        category: "COMBO",
+      },
+    ],
+  });
+
   console.log("\nSeed complete.\n");
   console.log("Admin login:      admin@showtime.dev / Admin123!");
   console.log("Demo user login:  demo@showtime.dev / Demo1234!");
   console.log("Guest booking:    reference=SHOW-GUEST1  email=jordan.guest@example.com");
-  console.log(`Past show (rate ${lastSignal.title}): ${pastShow.id}`);
+  console.log(`Past show (rate ${flagshipMovie.title}): ${pastShow.id}`);
   console.log(`Cities seeded:    ${[...new Set(theatreData.map((t) => t.city))].join(", ")}`);
   console.log(`Theatres seeded:  ${theatreData.length} (${theatreData.length * 2} screens)`);
+  console.log("Demo coupons:     WELCOME10 (10% off), FLAT50 (₹50 off, max 100 uses)");
+  console.log("Demo food items:  7 snacks/drinks/combos");
+  console.log(`Demo events:      ${events.length} (comedy/concert/theatre), 2 sessions each`);
 }
 
 main()

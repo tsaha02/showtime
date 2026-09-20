@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Box, Button, Tooltip, Typography, Stack, Chip } from "@mui/material";
+import AccessibleIcon from "@mui/icons-material/Accessible";
 import { MAX_SEATS_PER_BOOKING, type SeatCategory, type SeatMapEntryDTO } from "@showtime/shared";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { useHoldSeatMutation, useReleaseSeatMutation } from "../store/api";
@@ -125,6 +126,12 @@ export function SeatMapGrid({ showId, seats, prices }: SeatMapGridProps) {
         <LegendItem color="primary.main" label="Selected (your hold)" />
         <LegendItem color="grey.800" label="Held by someone else" />
         <LegendItem color="grey.900" label="Booked" />
+        <Stack direction="row" spacing={0.75} alignItems="center">
+          <AccessibleIcon sx={{ fontSize: 16, color: "secondary.main" }} />
+          <Typography variant="caption" color="text.secondary">
+            Wheelchair accessible
+          </Typography>
+        </Stack>
       </Stack>
 
       <Stack direction="row" spacing={1} justifyContent="center" flexWrap="wrap" sx={{ mt: 2 }}>
@@ -144,68 +151,70 @@ export function SeatMapGrid({ showId, seats, prices }: SeatMapGridProps) {
 function SeatCell({ seat, onClick }: { seat: SeatMapEntryDTO; onClick: () => void }) {
   const categoryColor = CATEGORY_COLORS[seat.category];
 
+  const badge = seat.wheelchairAccessible && (
+    <AccessibleIcon
+      sx={{
+        position: "absolute",
+        top: -6,
+        right: -6,
+        fontSize: 14,
+        color: "secondary.main",
+        bgcolor: "background.paper",
+        borderRadius: "50%",
+      }}
+    />
+  );
+
+  let button: JSX.Element;
+  let title: string;
+
   if (seat.status === "BOOKED") {
-    return (
-      <Tooltip title="Already booked">
-        <span>
-          <Button
-            disabled
-            sx={{ minWidth: 32, width: 32, height: 32, p: 0, bgcolor: "grey.900", color: "grey.700" }}
-          >
-            {seat.label}
-          </Button>
-        </span>
-      </Tooltip>
-    );
-  }
-
-  if (seat.status === "HELD" && !seat.heldByMe) {
-    return (
-      <Tooltip title="Someone else is holding this seat">
-        <span>
-          <Button
-            disabled
-            sx={{ minWidth: 32, width: 32, height: 32, p: 0, bgcolor: "grey.800", color: "grey.600" }}
-          >
-            {seat.label}
-          </Button>
-        </span>
-      </Tooltip>
-    );
-  }
-
-  if (seat.heldByMe) {
-    return (
-      <Tooltip title="Your seat — click to deselect">
-        <Button
-          onClick={onClick}
-          variant="contained"
-          color="primary"
-          sx={{ minWidth: 32, width: 32, height: 32, p: 0 }}
-        >
+    title = "Already booked";
+    button = (
+      <span>
+        <Button disabled sx={{ minWidth: 32, width: 32, height: 32, p: 0, bgcolor: "grey.900", color: "grey.700" }}>
           {seat.label}
         </Button>
-      </Tooltip>
+      </span>
     );
-  }
-
-  // AVAILABLE
-  return (
-    <Tooltip title={`${seat.category} — click to select`}>
+  } else if (seat.status === "HELD" && !seat.heldByMe) {
+    title = "Someone else is holding this seat";
+    button = (
+      <span>
+        <Button disabled sx={{ minWidth: 32, width: 32, height: 32, p: 0, bgcolor: "grey.800", color: "grey.600" }}>
+          {seat.label}
+        </Button>
+      </span>
+    );
+  } else if (seat.heldByMe) {
+    title = "Your seat — click to deselect";
+    button = (
+      <Button onClick={onClick} variant="contained" color="primary" sx={{ minWidth: 32, width: 32, height: 32, p: 0 }}>
+        {seat.label}
+      </Button>
+    );
+  } else {
+    // AVAILABLE
+    title = seat.wheelchairAccessible
+      ? `${seat.category} — wheelchair accessible — click to select`
+      : `${seat.category} — click to select`;
+    button = (
       <Button
         onClick={onClick}
         variant="outlined"
-        sx={{
-          minWidth: 32,
-          width: 32,
-          height: 32,
-          p: 0,
-          borderColor: categoryColor,
-          color: categoryColor,
-        }}
+        sx={{ minWidth: 32, width: 32, height: 32, p: 0, borderColor: categoryColor, color: categoryColor }}
       >
         {seat.label}
       </Button>
+    );
+  }
+
+  return (
+    <Tooltip title={title}>
+      <Box sx={{ position: "relative", lineHeight: 0 }}>
+        {button}
+        {badge}
+      </Box>
     </Tooltip>
   );
 }

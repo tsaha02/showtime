@@ -13,8 +13,11 @@ import {
   IconButton,
   Paper,
   Divider,
+  Checkbox,
+  Tooltip,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
+import AccessibleIcon from "@mui/icons-material/Accessible";
 import { useNavigate, useParams } from "react-router-dom";
 import { SEAT_CATEGORIES, type SeatCategory } from "@showtime/shared";
 import { useGetLayoutQuery, usePutLayoutMutation, type SeatInput } from "../store/adminApi";
@@ -37,7 +40,15 @@ export default function LayoutEditorPage() {
 
   useEffect(() => {
     if (layout) {
-      setSeats(layout.seats.map((s) => ({ row: s.row, col: s.col, label: s.label, category: s.category })));
+      setSeats(
+        layout.seats.map((s) => ({
+          row: s.row,
+          col: s.col,
+          label: s.label,
+          category: s.category,
+          wheelchairAccessible: s.wheelchairAccessible,
+        })),
+      );
     }
   }, [layout]);
 
@@ -132,6 +143,7 @@ export default function LayoutEditorPage() {
             <TableCell>Col</TableCell>
             <TableCell>Label</TableCell>
             <TableCell>Category</TableCell>
+            <TableCell align="center">Accessible</TableCell>
             <TableCell align="right">Actions</TableCell>
           </TableRow>
         </TableHead>
@@ -178,6 +190,17 @@ export default function LayoutEditorPage() {
                     </MenuItem>
                   ))}
                 </TextField>
+              </TableCell>
+              <TableCell align="center">
+                <Tooltip title="Wheelchair accessible">
+                  <Checkbox
+                    size="small"
+                    icon={<AccessibleIcon fontSize="small" color="disabled" />}
+                    checkedIcon={<AccessibleIcon fontSize="small" color="primary" />}
+                    checked={!!seat.wheelchairAccessible}
+                    onChange={(e) => updateSeat(i, { wheelchairAccessible: e.target.checked })}
+                  />
+                </Tooltip>
               </TableCell>
               <TableCell align="right">
                 <IconButton size="small" onClick={() => removeSeat(i)}>

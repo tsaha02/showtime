@@ -8,6 +8,7 @@ import { asyncHandler } from "../../utils/asyncHandler";
 import { ApiError } from "../../utils/ApiError";
 import { prisma } from "../../lib/prisma";
 import { DEFAULT_SEAT_PRICES } from "../../config/defaultPrices";
+import { notifyWaitlistForMovie } from "../../services/waitlistService";
 
 const router = Router();
 router.use(requireAdminAuth);
@@ -27,7 +28,7 @@ router.post(
   "/",
   validateBody(showSchema),
   asyncHandler(async (req, res) => {
-    const { movieId, screenId, startTime, prices } = req.body;
+    const { movieId, screenId, startTime, format, language, prices } = req.body;
     const movie = await prisma.movie.findUnique({ where: { id: movieId } });
     if (!movie) throw ApiError.badRequest("Movie not found");
 
@@ -40,10 +41,18 @@ router.post(
         screenId,
         startTime: start,
         endTime: end,
+        format,
+        language,
         prices: { createMany: { data: prices } },
       },
       include: { prices: true },
     });
+
+    // Fire-and-forget: creating a show must never be slowed down or
+    // failed by email delivery to a waitlist — same non-negotiable
+    // posture as every other email trigger in this app.
+    void notifyWaitlistForMovie(movieId);
+
     res.status(201).json({ show });
   }),
 );
@@ -117,6 +126,8 @@ router.post(
       });
       scheduledCount++;
     }
+
+    for (const movie of movies) void notifyWaitlistForMovie(movie.id);
 
     res.json({ scheduledCount, screensConsidered: targetScreens.length });
   }),

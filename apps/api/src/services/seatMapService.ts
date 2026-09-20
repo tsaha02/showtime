@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { getHoldsForShow, getHoldTtl } from "./seatHoldService";
+import { titleOfShow } from "./bookingService";
 import { ApiError } from "../utils/ApiError";
 import type { SeatCategory, SeatMapEntryDTO, SeatMapResponseDTO } from "@showtime/shared";
 
@@ -8,6 +9,7 @@ export async function buildSeatMap(showId: string, sessionId: string): Promise<S
     where: { id: showId },
     include: {
       movie: true,
+      event: true,
       prices: true,
       screen: { include: { theatre: true, seatLayout: { include: { seats: true } } } },
     },
@@ -32,6 +34,7 @@ export async function buildSeatMap(showId: string, sessionId: string): Promise<S
           col: seat.col,
           label: seat.label,
           category: seat.category,
+          wheelchairAccessible: seat.wheelchairAccessible,
           status: "BOOKED" as const,
           heldByMe: false,
           holdExpiresAt: null,
@@ -46,6 +49,7 @@ export async function buildSeatMap(showId: string, sessionId: string): Promise<S
           col: seat.col,
           label: seat.label,
           category: seat.category,
+          wheelchairAccessible: seat.wheelchairAccessible,
           status: "HELD" as const,
           heldByMe: owner === sessionId,
           holdExpiresAt: expiresAt ? expiresAt.toISOString() : null,
@@ -57,6 +61,7 @@ export async function buildSeatMap(showId: string, sessionId: string): Promise<S
         col: seat.col,
         label: seat.label,
         category: seat.category,
+        wheelchairAccessible: seat.wheelchairAccessible,
         status: "AVAILABLE" as const,
         heldByMe: false,
         holdExpiresAt: null,
@@ -68,7 +73,7 @@ export async function buildSeatMap(showId: string, sessionId: string): Promise<S
     seats: entries,
     show: {
       id: show.id,
-      movieTitle: show.movie.title,
+      movieTitle: titleOfShow(show),
       theatreName: show.screen.theatre.name,
       screenName: show.screen.name,
       startTime: show.startTime.toISOString(),

@@ -2,6 +2,7 @@ import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import type {
   MovieDTO,
   ShowDTO,
+  EventDTO,
   TheatreDTO,
   RatingDTO,
   RatingsPageDTO,
@@ -11,6 +12,7 @@ import type {
   ConfirmBookingInput,
   CreatePaymentIntentInput,
   CreatePaymentIntentResponseDTO,
+  CreateGenericPaymentIntentResponseDTO,
   RegisterInput,
   LoginInput,
   VerifyEmailInput,
@@ -24,8 +26,26 @@ import type {
   ExternalMovieSearchResultDTO,
   ExternalMovieDetailsDTO,
   DiscoverDetailDTO,
+  CouponPreviewDTO,
+  PreviewCouponInput,
+  JoinWaitlistInput,
+  FoodItemDTO,
+  WalletTransactionDTO,
+  VoteRatingInput,
+  PurchaseGiftCardInput,
+  RedeemGiftCardInput,
+  GiftCardPurchaseResponseDTO,
 } from "@showtime/shared";
 import { getSessionId } from "../lib/sessionId";
+
+// Not exported from @showtime/shared yet (see apps/api/src/routes/offers.routes.ts) —
+// mirrors that route's response shape exactly.
+export interface OfferDTO {
+  code: string;
+  type: "PERCENT" | "FLAT";
+  value: number;
+  expiresAt: string | null;
+}
 
 export type SeatMapResponse = SeatMapResponseDTO;
 
@@ -56,8 +76,11 @@ export const api = createApi({
       transformResponse: (res: { movie: MovieDTO }) => res.movie,
       providesTags: (_res, _err, id) => [{ type: "Movie", id }],
     }),
-    getMovieShows: builder.query<ShowDTO[], { movieId: string; city?: string }>({
-      query: ({ movieId, city }) => ({ url: `/movies/${movieId}/shows`, params: city ? { city } : undefined }),
+    getMovieShows: builder.query<ShowDTO[], { movieId: string; city?: string; format?: string; language?: string }>({
+      query: ({ movieId, city, format, language }) => ({
+        url: `/movies/${movieId}/shows`,
+        params: { ...(city ? { city } : {}), ...(format ? { format } : {}), ...(language ? { language } : {}) },
+      }),
       transformResponse: (res: { shows: ShowDTO[] }) => res.shows,
     }),
     // `page` is 1-indexed; the server also returns `total`/`pageSize`/
@@ -90,6 +113,25 @@ export const api = createApi({
     reverseGeocode: builder.query<string | null, { lat: number; lon: number }>({
       query: ({ lat, lon }) => ({ url: "/locations/reverse-geocode", params: { lat, lon } }),
       transformResponse: (res: { city: string | null }) => res.city,
+    }),
+
+    // --- Events (concerts, comedy nights, plays — same booking engine as
+    // Movies underneath: a "session" is just a Show row with kind: "EVENT",
+    // so seat map / checkout code stays movie-and-event-agnostic) ---
+    getEvents: builder.query<EventDTO[], { search?: string; category?: string; city?: string; bookable?: boolean } | undefined>({
+      query: (params) => ({ url: "/events", params }),
+      transformResponse: (res: { events: EventDTO[] }) => res.events,
+    }),
+    getEvent: builder.query<EventDTO, string>({
+      query: (id) => `/events/${id}`,
+      transformResponse: (res: { event: EventDTO }) => res.event,
+    }),
+    getEventSessions: builder.query<ShowDTO[], { eventId: string; city?: string; format?: string; language?: string }>({
+      query: ({ eventId, city, format, language }) => ({
+        url: `/events/${eventId}/sessions`,
+        params: { ...(city ? { city } : {}), ...(format ? { format } : {}), ...(language ? { language } : {}) },
+      }),
+      transformResponse: (res: { sessions: ShowDTO[] }) => res.sessions,
     }),
 
     // --- Discover (browse-any-movie via OMDb, separate from the bookable catalog) ---
@@ -161,6 +203,9 @@ export const api = createApi({
     createPaymentIntent: builder.mutation<CreatePaymentIntentResponseDTO, CreatePaymentIntentInput>({
       query: (body) => ({ url: "/bookings/create-payment-intent", method: "POST", body }),
     }),
+    previewCoupon: builder.mutation<CouponPreviewDTO, PreviewCouponInput>({
+      query: (body) => ({ url: "/bookings/preview-coupon", method: "POST", body }),
+    }),
     confirmBooking: builder.mutation<BookingDTO, ConfirmBookingInput>({
       query: (body) => ({ url: "/bookings/confirm", method: "POST", body }),
       transformResponse: (res: { booking: BookingDTO }) => res.booking,
@@ -186,6 +231,65 @@ export const api = createApi({
       transformResponse: (res: { rating: RatingDTO }) => res.rating,
       invalidatesTags: ["Ratings", "Movie"],
     }),
+
+    // --- Waitlist ---
+    joinWaitlist: builder.mutation<void, JoinWaitlistInput>({
+      query: (body) => ({ url: "/waitlist", method: "POST", body }),
+    }),
+
+    // --- Food & Beverages ---
+    getFoodItems: builder.query<FoodItemDTO[], void>({
+      query: () => "/food-items",
+      transformResponse: (res: { foodItems: FoodItemDTO[] }) => res.foodItems,
+    }),
+
+    // --- Wallet ---
+    getWalletTransactions: builder.query<WalletTransactionDTO[], void>({
+      query: () => "/wallet/transactions",
+      transformResponse: (res: { transactions: WalletTransactionDTO[] }) => res.transactions,
+    }),
+
+    // --- Review voting ---
+    voteRating: builder.mutation<
+      { helpfulCount: number; notHelpfulCount: number; myVote: boolean | null },
+      { ratingId: string } & VoteRatingInput
+    >({
+      query: ({ ratingId, ...body }) => ({ url: `/ratings/${ratingId}/vote`, method: "POST", body }),
+    }),
+
+    // --- Gift cards ---
+    createGiftCardPaymentIntent: builder.mutation<CreateGenericPaymentIntentResponseDTO, { value: number }>({
+      query: (body) => ({ url: "/gift-cards/create-payment-intent", method: "POST", body }),
+    }),
+    purchaseGiftCard: builder.mutation<GiftCardPurchaseResponseDTO, PurchaseGiftCardInput>({
+      query: (body) => ({ url: "/gift-cards/purchase", method: "POST", body }),
+    }),
+    redeemGiftCard: builder.mutation<{ value: number }, RedeemGiftCardInput>({
+      query: (body) => ({ url: "/gift-cards/redeem", method: "POST", body }),
+      invalidatesTags: ["Auth"],
+    }),
+
+    // --- Recommendations ---
+    getSimilarMovies: builder.query<MovieDTO[], string>({
+      query: (movieId) => `/movies/${movieId}/similar`,
+      transformResponse: (res: { movies: MovieDTO[] }) => res.movies,
+    }),
+    getRecommendedMovies: builder.query<MovieDTO[], void>({
+      query: () => "/movies/recommended",
+      transformResponse: (res: { movies: MovieDTO[] }) => res.movies,
+    }),
+
+    // --- Offers wall ---
+    getOffers: builder.query<OfferDTO[], void>({
+      query: () => "/offers",
+      transformResponse: (res: { offers: OfferDTO[] }) => res.offers,
+    }),
+
+    // --- Charity round-up ---
+    getDonationsTotal: builder.query<number, void>({
+      query: () => "/donations/total",
+      transformResponse: (res: { total: number }) => res.total,
+    }),
   }),
 });
 
@@ -199,6 +303,9 @@ export const {
   useGetCitiesQuery,
   useGetIndiaCitiesQuery,
   useLazyReverseGeocodeQuery,
+  useGetEventsQuery,
+  useGetEventQuery,
+  useGetEventSessionsQuery,
   useDiscoverMoviesQuery,
   useLazyDiscoverMoviesQuery,
   useGetDiscoverDetailQuery,
@@ -215,9 +322,21 @@ export const {
   useForgotPasswordMutation,
   useResetPasswordMutation,
   useCreatePaymentIntentMutation,
+  usePreviewCouponMutation,
   useConfirmBookingMutation,
   useGetMyBookingsQuery,
   useFindBookingMutation,
   useCancelBookingMutation,
   useCreateRatingMutation,
+  useJoinWaitlistMutation,
+  useGetFoodItemsQuery,
+  useGetWalletTransactionsQuery,
+  useVoteRatingMutation,
+  useCreateGiftCardPaymentIntentMutation,
+  usePurchaseGiftCardMutation,
+  useRedeemGiftCardMutation,
+  useGetSimilarMoviesQuery,
+  useGetRecommendedMoviesQuery,
+  useGetOffersQuery,
+  useGetDonationsTotalQuery,
 } = api;

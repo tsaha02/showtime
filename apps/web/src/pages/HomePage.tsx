@@ -1,10 +1,7 @@
 import { useState } from "react";
-import { Link as RouterLink } from "react-router-dom";
 import {
   Grid,
   Card,
-  CardActionArea,
-  CardMedia,
   CardContent,
   Typography,
   TextField,
@@ -12,7 +9,6 @@ import {
   CircularProgress,
   Alert,
   Chip,
-  Rating,
   InputAdornment,
   MenuItem,
   Stack,
@@ -25,6 +21,11 @@ import SearchIcon from "@mui/icons-material/Search";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import MyLocationIcon from "@mui/icons-material/MyLocation";
 import MovieFilterIcon from "@mui/icons-material/MovieFilter";
+import EventSeatIcon from "@mui/icons-material/EventSeat";
+import CreditScoreIcon from "@mui/icons-material/CreditScore";
+import ApartmentIcon from "@mui/icons-material/Apartment";
+import QrCode2Icon from "@mui/icons-material/QrCode2";
+import { alpha } from "@mui/material/styles";
 import {
   useGetMoviesQuery,
   useGetGenresQuery,
@@ -32,14 +33,23 @@ import {
   useGetIndiaCitiesQuery,
   useGetTheatresQuery,
   useLazyReverseGeocodeQuery,
+  useGetRecommendedMoviesQuery,
 } from "../store/api";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { setSelectedCity } from "../store/slices/locationSlice";
 import { showToast } from "../store/slices/uiSlice";
 import { getErrorMessage } from "../lib/apiError";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { MovieCard } from "../components/MovieCard";
 
 const ALL = "__all__";
+
+const TRUST_POINTS = [
+  { icon: EventSeatIcon, label: "Live seat selection" },
+  { icon: CreditScoreIcon, label: "Real Stripe payments (test mode)" },
+  { icon: ApartmentIcon, label: "10 cities, 20+ theatres" },
+  { icon: QrCode2Icon, label: "Instant e-tickets" },
+];
 
 export function HomePage() {
   const dispatch = useAppDispatch();
@@ -64,6 +74,7 @@ export function HomePage() {
   const { data: indiaCities } = useGetIndiaCitiesQuery();
   const { data: theatres } = useGetTheatresQuery();
   const [reverseGeocode] = useLazyReverseGeocodeQuery();
+  const { data: recommendedMovies } = useGetRecommendedMoviesQuery();
   const theatresInCity = city ? (theatres ?? []).filter((t) => t.city === city) : [];
   const {
     data: movies,
@@ -118,6 +129,55 @@ export function HomePage() {
 
   return (
     <Box>
+      <Box
+        sx={{
+          position: "relative",
+          textAlign: "center",
+          py: { xs: 4, sm: 6 },
+          px: 2,
+          mb: { xs: 3, sm: 4 },
+          borderRadius: 3,
+          overflow: "hidden",
+          backgroundImage: (theme) =>
+            `radial-gradient(ellipse 900px 400px at 50% 0%, ${alpha(theme.palette.primary.main, 0.14)}, transparent), radial-gradient(ellipse 700px 400px at 100% 100%, ${alpha(theme.palette.secondary.main, 0.08)}, transparent)`,
+          border: "1px solid",
+          borderColor: "divider",
+        }}
+      >
+        <Typography variant="h3" fontWeight={800} sx={{ fontSize: { xs: "1.9rem", sm: "2.6rem" } }} gutterBottom>
+          Book your next show in{" "}
+          <Box component="span" sx={{ color: "secondary.main" }}>
+            seconds
+          </Box>
+        </Typography>
+        <Typography
+          variant="body1"
+          color="text.secondary"
+          sx={{ maxWidth: 560, mx: "auto", mb: { xs: 2.5, sm: 3 } }}
+        >
+          Real showtimes, live seat selection, and instant e-tickets — across 10 cities.
+        </Typography>
+        <Stack
+          direction="row"
+          spacing={{ xs: 1, sm: 1.5 }}
+          justifyContent="center"
+          flexWrap="wrap"
+          useFlexGap
+          sx={{ rowGap: 1 }}
+        >
+          {TRUST_POINTS.map(({ icon: Icon, label }) => (
+            <Chip
+              key={label}
+              icon={<Icon fontSize="small" />}
+              label={label}
+              size="small"
+              variant="outlined"
+              sx={{ bgcolor: "background.paper" }}
+            />
+          ))}
+        </Stack>
+      </Box>
+
       <Typography variant="h4" gutterBottom sx={{ mb: { xs: 2, sm: 3 } }}>
         Now Showing
       </Typography>
@@ -251,45 +311,25 @@ export function HomePage() {
           ))}
         {movies?.map((movie) => (
           <Grid item xs={6} sm={4} md={3} lg={2.4} key={movie.id}>
-            <Card
-              sx={{
-                height: "100%",
-                display: "flex",
-                flexDirection: "column",
-                "&:hover": {
-                  transform: { xs: "none", sm: "translateY(-4px)" },
-                  boxShadow: "0 16px 32px -12px rgba(0,0,0,0.5)",
-                  borderColor: "primary.main",
-                },
-              }}
-            >
-              <CardActionArea component={RouterLink} to={`/movies/${movie.id}`} sx={{ height: "100%" }}>
-                <CardMedia
-                  component="img"
-                  image={movie.posterUrl ?? "https://placehold.co/300x450?text=No+Poster"}
-                  alt={movie.title}
-                  sx={{ aspectRatio: "2 / 3", objectFit: "cover" }}
-                />
-                <CardContent>
-                  <Typography variant="subtitle1" fontWeight={700} noWrap>
-                    {movie.title}
-                  </Typography>
-                  <Chip label={movie.genre} size="small" sx={{ mb: 1, mt: 0.5 }} />
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <Rating value={movie.averageRating} precision={0.5} size="small" readOnly />
-                    <Typography variant="body2" color="text.secondary">
-                      ({movie.ratingCount})
-                    </Typography>
-                  </Box>
-                  <Typography variant="body2" color="text.secondary">
-                    {movie.durationMins} mins
-                  </Typography>
-                </CardContent>
-              </CardActionArea>
-            </Card>
+            <MovieCard movie={movie} />
           </Grid>
         ))}
       </Grid>
+
+      {recommendedMovies && recommendedMovies.length > 0 && (
+        <Box sx={{ mt: { xs: 4, sm: 5 } }}>
+          <Typography variant="h4" gutterBottom sx={{ mb: { xs: 2, sm: 3 } }}>
+            Recommended for you
+          </Typography>
+          <Grid container spacing={{ xs: 2, sm: 3 }}>
+            {recommendedMovies.map((movie) => (
+              <Grid item xs={6} sm={4} md={3} lg={2.4} key={movie.id}>
+                <MovieCard movie={movie} />
+              </Grid>
+            ))}
+          </Grid>
+        </Box>
+      )}
     </Box>
   );
 }

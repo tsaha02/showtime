@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link as RouterLink } from "react-router-dom";
 import {
   Box,
@@ -27,6 +27,8 @@ import { useAppDispatch } from "../store/hooks";
 import { showToast } from "../store/slices/uiSlice";
 import { getErrorMessage } from "../lib/apiError";
 import { TicketQRCode } from "../components/TicketQRCode";
+import { downloadTicketPdf } from "../lib/downloadTicketPdf";
+import type { BookingDTO } from "@showtime/shared";
 
 // Confirmed bookings default to expanded (ticket visible) for the most
 // recent few — the whole point of this page is "show me my ticket", not
@@ -46,6 +48,12 @@ export function MyBookingsPage() {
   // to the pool, so an accidental misclick shouldn't be able to cancel it
   // with no chance to back out.
   const [pendingCancelId, setPendingCancelId] = useState<string | null>(null);
+  const ticketRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  const handleDownloadPdf = (booking: BookingDTO) => {
+    const ref = { current: ticketRefs.current.get(booking.id) ?? null };
+    downloadTicketPdf(ref, `ticket-${booking.reference}.pdf`);
+  };
 
   const handleCancel = async (id: string) => {
     try {
@@ -152,15 +160,26 @@ export function MyBookingsPage() {
               <AccordionDetails>
                 <Divider sx={{ mb: 2 }} />
                 <Stack spacing={2} alignItems="center">
-                  <TicketQRCode booking={booking} />
-                  <Button
-                    color="error"
-                    size="small"
-                    disabled={isCancelling}
-                    onClick={() => setPendingCancelId(booking.id)}
-                  >
-                    Cancel booking
-                  </Button>
+                  <TicketQRCode
+                    booking={booking}
+                    ref={(el) => {
+                      if (el) ticketRefs.current.set(booking.id, el);
+                      else ticketRefs.current.delete(booking.id);
+                    }}
+                  />
+                  <Stack direction="row" spacing={2}>
+                    <Button size="small" variant="outlined" onClick={() => handleDownloadPdf(booking)}>
+                      Download PDF
+                    </Button>
+                    <Button
+                      color="error"
+                      size="small"
+                      disabled={isCancelling}
+                      onClick={() => setPendingCancelId(booking.id)}
+                    >
+                      Cancel booking
+                    </Button>
+                  </Stack>
                 </Stack>
               </AccordionDetails>
             </Accordion>

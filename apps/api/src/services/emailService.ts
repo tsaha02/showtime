@@ -66,6 +66,39 @@ export async function sendPasswordResetEmail(to: string, name: string, otp: stri
   );
 }
 
+export async function sendWaitlistNotifyEmail(to: string, movieTitle: string): Promise<void> {
+  await send(
+    to,
+    `${movieTitle} is now showing on ShowTime!`,
+    `<div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+      <h2>Good news!</h2>
+      <p><strong>${escapeHtml(movieTitle)}</strong> now has showtimes available on ShowTime — you asked us to let you know.</p>
+      <p>Head to the app to pick a showtime and book your seats.</p>
+    </div>`,
+  );
+}
+
+export async function sendGiftCardEmail(
+  to: string,
+  code: string,
+  value: number,
+  fromEmail: string,
+  message?: string | null,
+): Promise<void> {
+  await send(
+    to,
+    `You've received a ₹${value} ShowTime gift card!`,
+    `<div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+      <h2>You've got a gift 🎬</h2>
+      <p>${escapeHtml(fromEmail)} sent you a ShowTime gift card worth <strong>₹${value}</strong>.</p>
+      ${message ? `<p style="font-style:italic">"${escapeHtml(message)}"</p>` : ""}
+      <p>Your code:</p>
+      <p style="font-size:24px;font-weight:bold;letter-spacing:2px;text-align:center">${escapeHtml(code)}</p>
+      <p>Log in to ShowTime, go to your Profile, and redeem this code to add it to your wallet balance.</p>
+    </div>`,
+  );
+}
+
 export async function sendBookingTicketEmail(to: string, booking: BookingDTO): Promise<void> {
   const seatLabels = booking.seats.map((s) => s.label).join(", ");
   const showTime = new Date(booking.showStartTime).toLocaleString([], {

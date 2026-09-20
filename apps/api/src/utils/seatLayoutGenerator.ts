@@ -11,6 +11,7 @@ export interface GeneratedSeat {
   col: number;
   label: string;
   category: SeatCategory;
+  wheelchairAccessible: boolean;
 }
 
 // Builds one screen's default seat grid. Demonstrates the row/col vs
@@ -41,7 +42,12 @@ export function generateDefaultSeatLayout(): GeneratedSeat[] {
     let seatNumber = 1;
     for (const col of colRange) {
       if (col === AISLE_COL) continue; // unreachable given colRange above, kept for clarity
-      seats.push({ row: rowIndex, col, label: `${rowLetter}${seatNumber}`, category });
+      // The two aisle-adjacent seats in the front row are marked
+      // wheelchair-accessible — a realistic default (easiest to reach
+      // without crossing other seats), same spirit as this generator's
+      // other placement choices (cheaper seats up front, a real aisle).
+      const wheelchairAccessible = rowIndex === 0 && (col === AISLE_COL - 1 || col === AISLE_COL + 1);
+      seats.push({ row: rowIndex, col, label: `${rowLetter}${seatNumber}`, category, wheelchairAccessible });
       seatNumber++;
     }
   });

@@ -5,7 +5,9 @@ import { prisma } from "../lib/prisma";
 import { redis } from "../lib/redis";
 import { asyncHandler } from "../utils/asyncHandler";
 import { ApiError } from "../utils/ApiError";
+import { optionalCustomerAuth } from "../middleware/auth";
 import { toMovieDTO } from "../services/movieService";
+import { getSimilarMovies, getPersonalizedRecommendations } from "../services/recommendationService";
 import { searchExternalMovies, getExternalMovieDetails, getExternalMovieByTitle } from "../services/externalMovieService";
 import { CURATED_MOVIE_TITLES } from "../data/curatedMovieTitles";
 
@@ -167,12 +169,31 @@ router.get(
   }),
 );
 
+// Must be registered BEFORE `/:id` — otherwise Express would match this
+// path as `/:id` with id="recommended".
+router.get(
+  "/recommended",
+  optionalCustomerAuth,
+  asyncHandler(async (req, res) => {
+    if (!req.user) return res.json({ movies: [] });
+    const movies = await getPersonalizedRecommendations(req.user.id);
+    res.json({ movies });
+  }),
+);
+
 router.get(
   "/:id",
   asyncHandler(async (req, res) => {
     const movie = await prisma.movie.findUnique({ where: { id: req.params.id } });
     if (!movie) throw ApiError.notFound("Movie not found");
     res.json({ movie: await toMovieDTO(movie) });
+  }),
+);
+
+router.get(
+  "/:id/similar",
+  asyncHandler(async (req, res) => {
+    res.json({ movies: await getSimilarMovies(req.params.id) });
   }),
 );
 
@@ -187,12 +208,16 @@ router.get(
     // in. The frontend still lets a user switch to "all cities" by
     // simply re-requesting without this param.
     const city = typeof req.query.city === "string" ? req.query.city : undefined;
+    const format = typeof req.query.format === "string" ? req.query.format : undefined;
+    const language = typeof req.query.language === "string" ? req.query.language : undefined;
 
     const shows = await prisma.show.findMany({
       where: {
         movieId: req.params.id,
         startTime: { gte: new Date() },
         ...(city ? { screen: { theatre: { city } } } : {}),
+        ...(format ? { format } : {}),
+        ...(language ? { language } : {}),
       },
       include: { screen: { include: { theatre: true } }, prices: true },
       orderBy: { startTime: "asc" },
@@ -201,13 +226,17 @@ router.get(
     res.json({
       shows: shows.map((show) => ({
         id: show.id,
+        kind: "MOVIE" as const,
         movieId: show.movieId,
+        eventId: null,
         screenId: show.screenId,
         startTime: show.startTime.toISOString(),
         endTime: show.endTime.toISOString(),
         screenName: show.screen.name,
         theatreName: show.screen.theatre.name,
         theatreCity: show.screen.theatre.city,
+        format: show.format,
+        language: show.language,
         prices: Object.fromEntries(show.prices.map((p) => [p.category, p.price])),
       })),
     });
@@ -218,13 +247,15 @@ const RATINGS_PAGE_SIZE = 10;
 
 router.get(
   "/:id/ratings",
+  optionalCustomerAuth,
   asyncHandler(async (req, res) => {
     const page = Math.max(1, Number(req.query.page) || 1);
+    const viewerId = req.user?.id;
 
     const [ratings, total, starGroups] = await Promise.all([
       prisma.rating.findMany({
         where: { movieId: req.params.id },
-        include: { user: true },
+        include: { user: true, votes: true },
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * RATINGS_PAGE_SIZE,
         take: RATINGS_PAGE_SIZE,
@@ -244,6 +275,10 @@ router.get(
         userName: r.user.name,
         stars: r.stars,
         comment: r.comment,
+        isSpoiler: r.isSpoiler,
+        helpfulCount: r.votes.filter((v) => v.helpful).length,
+        notHelpfulCount: r.votes.filter((v) => !v.helpful).length,
+        myVote: viewerId ? (r.votes.find((v) => v.userId === viewerId)?.helpful ?? null) : undefined,
         createdAt: r.createdAt.toISOString(),
       })),
       total,

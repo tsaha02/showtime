@@ -1,18 +1,22 @@
 import { Router } from "express";
-import { confirmBookingSchema, findBookingSchema, createPaymentIntentSchema } from "@showtime/shared";
-import type { CreatePaymentIntentResponseDTO } from "@showtime/shared";
+import { confirmBookingSchema, findBookingSchema, createPaymentIntentSchema, previewCouponSchema } from "@showtime/shared";
+import type { CreatePaymentIntentResponseDTO, CouponPreviewDTO } from "@showtime/shared";
 import { validateBody } from "../middleware/validate";
 import { optionalCustomerAuth, requireCustomerAuth, requireSessionId } from "../middleware/auth";
 import { asyncHandler } from "../utils/asyncHandler";
 import { ApiError } from "../utils/ApiError";
 import { prisma } from "../lib/prisma";
-import { confirmBooking, cancelBooking, bookingToDTO, computeSeatsPricing } from "../services/bookingService";
+import { confirmBooking, cancelBooking, bookingToDTO, computeSeatsPricing, computeBookingCharges } from "../services/bookingService";
 import { checkHoldsOwnedBy } from "../services/seatHoldService";
 import { createPaymentIntent, isStripeConfigured, seatIdsKey } from "../services/paymentService";
+import { applyCoupon } from "../services/couponService";
 
 const router = Router();
 
-const bookingInclude = { show: { include: { movie: true, screen: { include: { theatre: true } } } } } as const;
+const bookingInclude = {
+  show: { include: { movie: true, event: true, screen: { include: { theatre: true } } } },
+  foodItems: true,
+} as const;
 
 // Called right before the frontend mounts Stripe Elements. Requires the
 // caller to actually hold the seats being priced (same Redis check
@@ -21,9 +25,10 @@ const bookingInclude = { show: { include: { movie: true, screen: { include: { th
 router.post(
   "/create-payment-intent",
   requireSessionId,
+  optionalCustomerAuth,
   validateBody(createPaymentIntentSchema),
   asyncHandler(async (req, res) => {
-    const { showId, seatIds } = req.body;
+    const { showId, seatIds, couponCode, foodItems, useWallet, roundUpDonation } = req.body;
 
     const holdCheck = await checkHoldsOwnedBy(showId, seatIds, req.sessionId);
     if (!holdCheck.ok) {
@@ -32,14 +37,29 @@ router.post(
       });
     }
 
-    const { totalAmount } = await computeSeatsPricing(showId, seatIds);
+    // The exact same pricing pipeline confirmBooking() re-runs and
+    // verifies against — see computeBookingCharges's comment for why
+    // this must be a single shared function, not two copies of the same
+    // arithmetic.
+    const { finalAmount } = await computeBookingCharges({
+      showId,
+      seatIds,
+      couponCode,
+      foodItems,
+      useWallet,
+      roundUpDonation,
+      userId: req.user?.id,
+    });
 
-    if (!isStripeConfigured()) {
+    if (!isStripeConfigured() || finalAmount === 0) {
+      // Nothing for Stripe to do — either it's not configured (mocked
+      // payment fallback) or the wallet already covers the whole order
+      // (Stripe can't create a ₹0 PaymentIntent either way).
       const body: CreatePaymentIntentResponseDTO = { stripeConfigured: false };
       return res.json(body);
     }
 
-    const intent = await createPaymentIntent(totalAmount, {
+    const intent = await createPaymentIntent(finalAmount, {
       showId,
       seatIds: seatIdsKey(seatIds),
       sessionId: req.sessionId,
@@ -48,9 +68,32 @@ router.post(
       stripeConfigured: true,
       clientSecret: intent!.clientSecret,
       paymentIntentId: intent!.paymentIntentId,
-      amount: totalAmount,
+      amount: finalAmount,
     };
     res.json(body);
+  }),
+);
+
+// Informational only — lets the checkout UI show "₹50 off" before the
+// user commits. Never mutates anything (no usage increment here); the
+// coupon is re-validated and actually consumed inside confirmBooking().
+router.post(
+  "/preview-coupon",
+  requireSessionId,
+  validateBody(previewCouponSchema),
+  asyncHandler(async (req, res) => {
+    const { code, showId, seatIds } = req.body;
+    const { totalAmount } = await computeSeatsPricing(showId, seatIds);
+
+    try {
+      const { discountAmount, finalAmount } = await applyCoupon(totalAmount, code);
+      const body: CouponPreviewDTO = { valid: true, message: "Coupon applied", discountAmount, finalAmount };
+      res.json(body);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : "Invalid coupon code";
+      const body: CouponPreviewDTO = { valid: false, message, discountAmount: 0, finalAmount: totalAmount };
+      res.json(body);
+    }
   }),
 );
 

@@ -4,6 +4,7 @@ import { ApiError } from "../utils/ApiError";
 import { signAuthToken } from "../utils/jwt";
 import { issueOtp, verifyOtp } from "./otpService";
 import { sendOtpEmail, sendPasswordResetEmail } from "./emailService";
+import { generateReferralCode } from "../utils/referralCode";
 import type {
   RegisterInput,
   LoginInput,
@@ -19,9 +20,24 @@ export async function registerUser(input: RegisterInput) {
   const existing = await prisma.user.findUnique({ where: { email: input.email } });
   if (existing) throw ApiError.conflict("An account with this email already exists");
 
+  // A referral code that doesn't match any user is silently ignored
+  // (treated as "no referral") rather than rejected — a typo'd or
+  // expired-looking code shouldn't be able to block someone from
+  // registering at all.
+  const referrer = input.referralCode
+    ? await prisma.user.findUnique({ where: { referralCode: input.referralCode.toUpperCase() } })
+    : null;
+
   const passwordHash = await bcrypt.hash(input.password, SALT_ROUNDS);
   const user = await prisma.user.create({
-    data: { name: input.name, email: input.email, passwordHash, role: "CUSTOMER" },
+    data: {
+      name: input.name,
+      email: input.email,
+      passwordHash,
+      role: "CUSTOMER",
+      referralCode: generateReferralCode(),
+      referredById: referrer?.id,
+    },
   });
 
   // Fire-and-forget: registration must succeed (and the user gets a
@@ -115,6 +131,8 @@ function issueSession(user: {
   email: string;
   role: "CUSTOMER" | "ADMIN";
   emailVerified: boolean;
+  walletBalance: number;
+  referralCode: string;
 }) {
   const token = signAuthToken({ sub: user.id, role: user.role });
   return {
@@ -125,6 +143,8 @@ function issueSession(user: {
       email: user.email,
       role: user.role,
       emailVerified: user.emailVerified,
+      walletBalance: user.walletBalance,
+      referralCode: user.referralCode,
     },
   };
 }

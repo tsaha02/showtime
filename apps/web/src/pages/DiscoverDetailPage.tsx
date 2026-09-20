@@ -1,6 +1,7 @@
 import { useParams, Link as RouterLink } from "react-router-dom";
 import { Box, Grid, Typography, Chip, Stack, CircularProgress, Alert, Button, Divider } from "@mui/material";
 import StarIcon from "@mui/icons-material/Star";
+import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
 import { useGetDiscoverDetailQuery } from "../store/api";
 import { getErrorMessage } from "../lib/apiError";
 
@@ -56,7 +57,20 @@ export function DiscoverDetailPage() {
           />
         </Grid>
         <Grid item xs={12} sm={7} md={8}>
-          <Typography variant="h4">{details.title}</Typography>
+          <Stack direction="row" alignItems="center" spacing={2} flexWrap="wrap" useFlexGap>
+            <Typography variant="h4">{details.title}</Typography>
+            <Button
+              component="a"
+              href={`https://www.youtube.com/results?search_query=${encodeURIComponent(`${details.title} trailer`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              startIcon={<PlayCircleOutlineIcon />}
+              size="small"
+              variant="outlined"
+            >
+              Watch Trailer
+            </Button>
+          </Stack>
           <Stack direction="row" spacing={1} my={1} flexWrap="wrap" useFlexGap>
             {details.rated && <Chip label={details.rated} size="small" color="secondary" variant="outlined" />}
             {details.genre && <Chip label={details.genre} size="small" />}

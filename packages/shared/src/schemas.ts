@@ -11,6 +11,11 @@ export const registerSchema = z
     email: z.string().email(),
     password: z.string().min(8).max(72),
     confirmPassword: z.string().min(8).max(72),
+    // Someone else's referralCode — optional, sets up the bonus payout
+    // that actually happens on this new user's first CONFIRMED booking
+    // (see walletService.ts's awardReferralBonusIfEligible), not at
+    // registration time.
+    referralCode: z.string().optional(),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
@@ -86,6 +91,7 @@ export const seatInputSchema = z.object({
   col: z.number().int().min(0),
   label: z.string().min(1).max(10),
   category: seatCategorySchema,
+  wheelchairAccessible: z.boolean().optional(),
 });
 export const seatLayoutSchema = z.object({
   screenId: z.string().uuid(),
@@ -106,9 +112,40 @@ export const showSchema = z.object({
   movieId: z.string().uuid(),
   screenId: z.string().uuid(),
   startTime: z.string().datetime(),
+  format: z.string().min(1).max(20).default("2D"),
+  language: z.string().min(1).max(30).default("English"),
   prices: z.array(showPriceSchema).min(1),
 });
 export type ShowInput = z.infer<typeof showSchema>;
+
+// --- Events (a second bookable content type — see the `Event`/`Show`
+// comments in schema.prisma for why sessions reuse Show/ShowSeatPrice
+// rather than a parallel set of tables) ---
+
+export const eventCategorySchema = z.enum(["CONCERT", "COMEDY", "SPORTS", "THEATRE_PLAY", "WORKSHOP", "OTHER"]);
+
+export const eventSchema = z.object({
+  title: z.string().min(1).max(200),
+  description: z.string().min(1).max(2000),
+  category: eventCategorySchema,
+  durationMins: z.number().int().positive().max(1440),
+  posterUrl: z.string().url().nullable().optional(),
+});
+export type EventInput = z.infer<typeof eventSchema>;
+
+// Mirrors showSchema exactly, `eventId` instead of `movieId` — kept as
+// a separate schema (not a discriminated union with showSchema) since
+// the two admin forms that submit these are genuinely separate pages,
+// not one form branching on content type.
+export const eventSessionSchema = z.object({
+  eventId: z.string().uuid(),
+  screenId: z.string().uuid(),
+  startTime: z.string().datetime(),
+  format: z.string().min(1).max(20).default("2D"),
+  language: z.string().min(1).max(30).default("English"),
+  prices: z.array(showPriceSchema).min(1),
+});
+export type EventSessionInput = z.infer<typeof eventSessionSchema>;
 
 // --- Booking ---
 
@@ -130,6 +167,11 @@ const guestDetailsSchema = z.object({
   guestPhone: z.string().max(20).optional(),
 });
 
+export const foodCartItemSchema = z.object({
+  foodItemId: z.string().uuid(),
+  quantity: z.number().int().min(1).max(20),
+});
+
 // A booking belongs to EITHER an authenticated user (identified via the
 // session cookie, not part of this body) OR a guest. When the request has
 // no auth cookie, guestDetails is required; the server enforces this
@@ -145,14 +187,80 @@ export const confirmBookingSchema = z.object({
   // PaymentIntent the client already confirmed with Stripe.js, which the
   // server re-verifies directly with Stripe before booking anything.
   paymentIntentId: z.string().optional(),
+  couponCode: z.string().optional(),
+  foodItems: z.array(foodCartItemSchema).max(20).optional(),
+  // Only meaningful for logged-in users (guests have no wallet) — "apply
+  // as much of my wallet balance as covers this order," never a specific
+  // amount the client dictates.
+  useWallet: z.boolean().optional(),
+  // "Round up to the nearest ₹10 and add it as a donation" — see
+  // donationService.ts. A demo feature (no real charity payout), but a
+  // real extra charge computed the same way in both this endpoint and
+  // create-payment-intent, same discipline as coupons/food/wallet.
+  roundUpDonation: z.boolean().optional(),
 });
 export type ConfirmBookingInput = z.infer<typeof confirmBookingSchema>;
 
 export const createPaymentIntentSchema = z.object({
   showId: z.string().uuid(),
   seatIds: z.array(z.string().uuid()).min(1).max(MAX_SEATS_PER_BOOKING),
+  couponCode: z.string().optional(),
+  foodItems: z.array(foodCartItemSchema).max(20).optional(),
+  useWallet: z.boolean().optional(),
+  roundUpDonation: z.boolean().optional(),
 });
 export type CreatePaymentIntentInput = z.infer<typeof createPaymentIntentSchema>;
+
+export const previewCouponSchema = z.object({
+  code: z.string().min(1),
+  showId: z.string().uuid(),
+  seatIds: z.array(z.string().uuid()).min(1).max(MAX_SEATS_PER_BOOKING),
+});
+export type PreviewCouponInput = z.infer<typeof previewCouponSchema>;
+
+export const couponSchema = z.object({
+  code: z
+    .string()
+    .min(3)
+    .max(20)
+    .transform((v) => v.toUpperCase()),
+  type: z.enum(["PERCENT", "FLAT"]),
+  value: z.number().int().positive(),
+  maxUses: z.number().int().positive().nullable().optional(),
+  active: z.boolean().optional(),
+  expiresAt: z.string().datetime().nullable().optional(),
+});
+export type CouponInput = z.infer<typeof couponSchema>;
+
+export const foodItemSchema = z.object({
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  price: z.number().int().positive().max(10000),
+  category: z.enum(["SNACK", "DRINK", "COMBO"]),
+  imageUrl: z.string().url().nullable().optional(),
+  active: z.boolean().optional(),
+});
+export type FoodItemInput = z.infer<typeof foodItemSchema>;
+
+export const joinWaitlistSchema = z.object({
+  movieId: z.string().uuid(),
+  email: z.string().email(),
+});
+export type JoinWaitlistInput = z.infer<typeof joinWaitlistSchema>;
+
+export const purchaseGiftCardSchema = z.object({
+  value: z.number().int().min(100).max(10000),
+  recipientEmail: z.string().email(),
+  purchasedByEmail: z.string().email().optional(),
+  message: z.string().max(300).optional(),
+  paymentIntentId: z.string().optional(),
+});
+export type PurchaseGiftCardInput = z.infer<typeof purchaseGiftCardSchema>;
+
+export const redeemGiftCardSchema = z.object({
+  code: z.string().min(1),
+});
+export type RedeemGiftCardInput = z.infer<typeof redeemGiftCardSchema>;
 
 export const findBookingSchema = z.object({
   reference: z.string().min(1),
@@ -166,5 +274,11 @@ export const createRatingSchema = z.object({
   movieId: z.string().uuid(),
   stars: z.number().int().min(1).max(5),
   comment: z.string().max(1000).optional(),
+  isSpoiler: z.boolean().optional(),
 });
 export type CreateRatingInput = z.infer<typeof createRatingSchema>;
+
+export const voteRatingSchema = z.object({
+  helpful: z.boolean(),
+});
+export type VoteRatingInput = z.infer<typeof voteRatingSchema>;

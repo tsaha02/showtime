@@ -98,3 +98,66 @@ export async function verifyPaymentIntent(paymentIntentId: string, expected: Pay
     throw ApiError.badRequest("Payment does not match the requested seats");
   }
 }
+
+// A second, generic PaymentIntent pair for anything that isn't a seat
+// booking (currently: gift card purchases — see giftCardService.ts).
+// Kept separate from `createPaymentIntent`/`verifyPaymentIntent` above
+// rather than generalizing those: the booking versions' metadata shape
+// (showId + seatIds) is load-bearing for preventing cross-cart replay,
+// and forcing every future non-booking use of Stripe to squeeze into
+// that shape would be the wrong kind of reuse. `purpose` namespaces
+// metadata the same way OTP `purpose` does in authService.ts, so a
+// PaymentIntent created for one kind of purchase can never be replayed
+// against another.
+export async function createGenericPaymentIntent(
+  amountRupees: number,
+  purpose: string,
+  metadata: Record<string, string>,
+): Promise<CreatedPaymentIntent | null> {
+  if (!stripe) return null;
+
+  const intent = await stripe.paymentIntents.create({
+    amount: amountRupees * 100,
+    currency: "inr",
+    metadata: { purpose, ...metadata },
+    payment_method_types: ["card"],
+  });
+
+  if (!intent.client_secret) throw ApiError.internal("Stripe did not return a client secret");
+  return { clientSecret: intent.client_secret, paymentIntentId: intent.id };
+}
+
+export async function verifyGenericPaymentIntent(
+  paymentIntentId: string,
+  expected: { amountRupees: number; purpose: string },
+): Promise<void> {
+  if (!stripe) throw ApiError.internal("Stripe is not configured on the server");
+
+  let intent: Stripe.PaymentIntent;
+  try {
+    intent = await stripe.paymentIntents.retrieve(paymentIntentId);
+  } catch (err) {
+    throw ApiError.badRequest(
+      `Could not verify payment: ${err instanceof Error ? err.message : "invalid payment reference"}`,
+    );
+  }
+
+  if (intent.status !== "succeeded") {
+    throw new ApiError(402, "PAYMENT_FAILED", `Payment was not completed (status: ${intent.status}).`);
+  }
+  if (intent.amount !== expected.amountRupees * 100 || intent.currency !== "inr") {
+    throw ApiError.badRequest("Payment amount does not match this purchase");
+  }
+  if (intent.metadata.purpose !== expected.purpose) {
+    throw ApiError.badRequest("Payment does not match this purchase");
+  }
+}
+
+// Best-effort refund on cancellation — logged rather than thrown on
+// failure, since a Stripe hiccup shouldn't block the seat-release/
+// cancellation itself (see cancelBooking, which still credits the
+// user's wallet as a fallback if this throws).
+export async function refundPaymentIntent(paymentIntentId: string): Promise<void> {
+  if (!stripe) return;
+  await stripe.refunds.create({ payment_intent: paymentIntentId });
+}

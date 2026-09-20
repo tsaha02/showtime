@@ -16,17 +16,33 @@ import {
   TextField,
   List,
   ListItem,
-  ListItemText,
   LinearProgress,
   Autocomplete,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Checkbox,
+  FormControlLabel,
+  IconButton,
 } from "@mui/material";
+import { MovieCard } from "../components/MovieCard";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
+import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
+import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
+import ThumbUpOutlinedIcon from "@mui/icons-material/ThumbUpOutlined";
+import ThumbUpIcon from "@mui/icons-material/ThumbUp";
+import ThumbDownOutlinedIcon from "@mui/icons-material/ThumbDownOutlined";
+import ThumbDownIcon from "@mui/icons-material/ThumbDown";
 import {
   useGetMovieQuery,
   useGetMovieShowsQuery,
   useGetMovieRatingsQuery,
   useCreateRatingMutation,
   useGetIndiaCitiesQuery,
+  useJoinWaitlistMutation,
+  useVoteRatingMutation,
+  useGetSimilarMoviesQuery,
 } from "../store/api";
 import { useAppSelector, useAppDispatch } from "../store/hooks";
 import { setSelectedCity } from "../store/slices/locationSlice";
@@ -50,6 +66,7 @@ export function MovieDetailPage() {
   const { data: indiaCities } = useGetIndiaCitiesQuery();
 
   const { data: movie, isLoading, isError, error } = useGetMovieQuery(id);
+  const { data: similarMovies } = useGetSimilarMoviesQuery(id, { skip: !id });
   const { data: shows } = useGetMovieShowsQuery({ movieId: id, city: cityFilter ?? undefined });
   const [ratingsPage, setRatingsPage] = useState(1);
   const [shownRatings, setShownRatings] = useState<RatingDTO[]>([]);
@@ -58,6 +75,40 @@ export function MovieDetailPage() {
 
   const [stars, setStars] = useState<number | null>(5);
   const [comment, setComment] = useState("");
+  const [isSpoiler, setIsSpoiler] = useState(false);
+  const [revealedSpoilers, setRevealedSpoilers] = useState<Record<string, boolean>>({});
+  const [voteRating] = useVoteRatingMutation();
+
+  const [formatFilter, setFormatFilter] = useState("");
+  const [languageFilter, setLanguageFilter] = useState("");
+  const formatOptions = useMemo(
+    () => Array.from(new Set((shows ?? []).map((s) => s.format))).sort(),
+    [shows],
+  );
+  const languageOptions = useMemo(
+    () => Array.from(new Set((shows ?? []).map((s) => s.language))).sort(),
+    [shows],
+  );
+
+  const [waitlistEmail, setWaitlistEmail] = useState(user?.email ?? "");
+  useEffect(() => {
+    if (user?.email) setWaitlistEmail(user.email);
+  }, [user?.email]);
+  const [joinWaitlist, { isLoading: isJoiningWaitlist }] = useJoinWaitlistMutation();
+
+  const handleJoinWaitlist = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!/^\S+@\S+\.\S+$/.test(waitlistEmail)) {
+      dispatch(showToast({ message: "Enter a valid email", severity: "warning" }));
+      return;
+    }
+    try {
+      await joinWaitlist({ movieId: id, email: waitlistEmail }).unwrap();
+      dispatch(showToast({ message: "We'll email you!", severity: "success" }));
+    } catch (err) {
+      dispatch(showToast({ message: getErrorMessage(err as any), severity: "error" }));
+    }
+  };
 
   // Append each page's ratings onto the running list ("load more" rather
   // than a full pager), and reset back to page 1 whenever ratings are
@@ -72,25 +123,49 @@ export function MovieDetailPage() {
   // Group upcoming shows by theatre, then by date, for a scannable list.
   const showsByTheatre = useMemo(() => {
     if (!shows) return [];
+    const filtered = shows.filter(
+      (show) =>
+        (!formatFilter || show.format === formatFilter) && (!languageFilter || show.language === languageFilter),
+    );
     const byTheatre = new Map<string, typeof shows>();
-    for (const show of shows) {
+    for (const show of filtered) {
       const key = `${show.theatreName} — ${show.theatreCity}`;
       if (!byTheatre.has(key)) byTheatre.set(key, []);
       byTheatre.get(key)!.push(show);
     }
     return Array.from(byTheatre.entries());
-  }, [shows]);
+  }, [shows, formatFilter, languageFilter]);
 
   const handleRate = async (e: FormEvent) => {
     e.preventDefault();
     if (!stars) return;
     try {
-      await createRating({ movieId: id, stars, comment: comment || undefined }).unwrap();
+      await createRating({ movieId: id, stars, comment: comment || undefined, isSpoiler }).unwrap();
       dispatch(showToast({ message: "Thanks for rating!", severity: "success" }));
       setComment("");
+      setIsSpoiler(false);
       setRatingsPage(1);
     } catch (err: any) {
       dispatch(showToast({ message: getErrorMessage(err), severity: "error" }));
+    }
+  };
+
+  const handleVote = async (ratingId: string, helpful: boolean) => {
+    if (!user) {
+      navigate("/login");
+      return;
+    }
+    try {
+      const result = await voteRating({ ratingId, helpful }).unwrap();
+      setShownRatings((prev) =>
+        prev.map((r) =>
+          r.id === ratingId
+            ? { ...r, helpfulCount: result.helpfulCount, notHelpfulCount: result.notHelpfulCount, myVote: result.myVote }
+            : r,
+        ),
+      );
+    } catch (err) {
+      dispatch(showToast({ message: getErrorMessage(err as any), severity: "error" }));
     }
   };
 
@@ -124,7 +199,20 @@ export function MovieDetailPage() {
           />
         </Grid>
         <Grid item xs={12} sm={7} md={8}>
-          <Typography variant="h4">{movie.title}</Typography>
+          <Stack direction="row" alignItems="center" spacing={2} flexWrap="wrap" useFlexGap>
+            <Typography variant="h4">{movie.title}</Typography>
+            <Button
+              component="a"
+              href={`https://www.youtube.com/results?search_query=${encodeURIComponent(`${movie.title} trailer`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              startIcon={<PlayCircleOutlineIcon />}
+              size="small"
+              variant="outlined"
+            >
+              Watch Trailer
+            </Button>
+          </Stack>
           <Stack direction="row" spacing={1} my={1}>
             <Chip label={movie.genre} size="small" />
             <Chip label={`${movie.durationMins} mins`} size="small" />
@@ -151,8 +239,13 @@ export function MovieDetailPage() {
         sx={{ mb: 2 }}
       >
         <Typography variant="h5">Showtimes</Typography>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ width: { xs: "100%", sm: "auto" } }}>
-          <LocationOnIcon fontSize="small" color="primary" />
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1}
+          alignItems={{ xs: "stretch", sm: "center" }}
+          sx={{ width: { xs: "100%", sm: "auto" } }}
+        >
+          <LocationOnIcon fontSize="small" color="primary" sx={{ display: { xs: "none", sm: "block" } }} />
           <Autocomplete
             size="small"
             options={indiaCities ?? []}
@@ -177,14 +270,64 @@ export function MovieDetailPage() {
               }}
             />
           )}
+          <FormControl size="small" sx={{ minWidth: { xs: "100%", sm: 130 } }}>
+            <InputLabel>Format</InputLabel>
+            <Select label="Format" value={formatFilter} onChange={(e) => setFormatFilter(e.target.value)}>
+              <MenuItem value="">All formats</MenuItem>
+              {formatOptions.map((f) => (
+                <MenuItem key={f} value={f}>
+                  {f}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: { xs: "100%", sm: 150 } }}>
+            <InputLabel>Language</InputLabel>
+            <Select label="Language" value={languageFilter} onChange={(e) => setLanguageFilter(e.target.value)}>
+              <MenuItem value="">All languages</MenuItem>
+              {languageOptions.map((l) => (
+                <MenuItem key={l} value={l}>
+                  {l}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
         </Stack>
       </Stack>
-      {showsByTheatre.length === 0 && (
+      {showsByTheatre.length === 0 && (shows?.length ?? 0) > 0 && (
         <Typography color="text.secondary">
           {cityFilter
             ? `No upcoming shows for this movie in ${cityFilter}. Try "Show all cities".`
-            : "No upcoming shows for this movie."}
+            : "No shows match these filters."}
         </Typography>
+      )}
+      {(shows?.length ?? 0) === 0 && (
+        <Card variant="outlined" sx={{ maxWidth: 480 }}>
+          <CardContent>
+            <Typography color="text.secondary" gutterBottom>
+              No upcoming shows for this movie yet.
+            </Typography>
+            <Typography variant="subtitle2" gutterBottom>
+              Notify me when tickets are available
+            </Typography>
+            <Box component="form" onSubmit={handleJoinWaitlist}>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                <TextField
+                  size="small"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={waitlistEmail}
+                  onChange={(e) => setWaitlistEmail(e.target.value)}
+                  fullWidth
+                  required
+                />
+                <Button type="submit" variant="contained" disabled={isJoiningWaitlist}>
+                  Notify me
+                </Button>
+              </Stack>
+            </Box>
+          </CardContent>
+        </Card>
       )}
       {showsByTheatre.map(([theatre, theatreShows]) => (
         <Card key={theatre} sx={{ mb: 2 }}>
@@ -208,6 +351,10 @@ export function MovieDetailPage() {
                   })}
                   {" · "}
                   {show.screenName}
+                  {" · "}
+                  {show.format}
+                  {" · "}
+                  {show.language}
                 </Button>
               ))}
             </Stack>
@@ -240,6 +387,10 @@ export function MovieDetailPage() {
                   minRows={2}
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
+                />
+                <FormControlLabel
+                  control={<Checkbox checked={isSpoiler} onChange={(e) => setIsSpoiler(e.target.checked)} />}
+                  label="Contains spoilers"
                 />
                 <Button type="submit" variant="contained" disabled={isRating} sx={{ alignSelf: "flex-start" }}>
                   Submit rating
@@ -282,19 +433,82 @@ export function MovieDetailPage() {
       )}
 
       <List>
-        {shownRatings.map((r) => (
-          <ListItem key={r.id} alignItems="flex-start" divider>
-            <ListItemText
-              primary={
-                <Stack direction="row" alignItems="center" spacing={1}>
-                  <Typography fontWeight={600}>{r.userName}</Typography>
-                  <Rating value={r.stars} size="small" readOnly />
+        {shownRatings.map((r) => {
+          const isOwnReview = !!user && user.id === r.userId;
+          const isRevealed = revealedSpoilers[r.id];
+          return (
+            <ListItem key={r.id} alignItems="flex-start" divider sx={{ display: "block", py: 1.5 }}>
+              <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+                <Typography fontWeight={600}>{r.userName}</Typography>
+                <Rating value={r.stars} size="small" readOnly />
+                {r.isSpoiler && <Chip label="Spoiler" size="small" color="warning" variant="outlined" />}
+              </Stack>
+
+              {r.comment && r.isSpoiler && !isRevealed ? (
+                <Box
+                  onClick={() => setRevealedSpoilers((prev) => ({ ...prev, [r.id]: true }))}
+                  sx={{
+                    position: "relative",
+                    cursor: "pointer",
+                    borderRadius: 1,
+                    px: 1.5,
+                    py: 1,
+                    bgcolor: "action.hover",
+                  }}
+                >
+                  <Typography sx={{ filter: "blur(6px)", userSelect: "none" }}>{r.comment}</Typography>
+                  <Stack
+                    alignItems="center"
+                    justifyContent="center"
+                    spacing={0.5}
+                    sx={{ position: "absolute", inset: 0 }}
+                  >
+                    <VisibilityOffOutlinedIcon fontSize="small" />
+                    <Typography variant="caption" fontWeight={600}>
+                      This review contains spoilers — click to reveal
+                    </Typography>
+                  </Stack>
+                </Box>
+              ) : (
+                r.comment && <Typography>{r.comment}</Typography>
+              )}
+
+              {!isOwnReview && (
+                <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: 1 }}>
+                  <IconButton
+                    size="small"
+                    color={r.myVote === true ? "primary" : "default"}
+                    disabled={r.myVote === undefined}
+                    onClick={() => handleVote(r.id, true)}
+                    aria-label="Mark helpful"
+                  >
+                    {r.myVote === true ? <ThumbUpIcon fontSize="small" /> : <ThumbUpOutlinedIcon fontSize="small" />}
+                  </IconButton>
+                  <Typography variant="caption" color="text.secondary">
+                    {r.helpfulCount}
+                  </Typography>
+                  <IconButton
+                    size="small"
+                    color={r.myVote === false ? "primary" : "default"}
+                    disabled={r.myVote === undefined}
+                    onClick={() => handleVote(r.id, false)}
+                    aria-label="Mark not helpful"
+                    sx={{ ml: 1 }}
+                  >
+                    {r.myVote === false ? (
+                      <ThumbDownIcon fontSize="small" />
+                    ) : (
+                      <ThumbDownOutlinedIcon fontSize="small" />
+                    )}
+                  </IconButton>
+                  <Typography variant="caption" color="text.secondary">
+                    {r.notHelpfulCount}
+                  </Typography>
                 </Stack>
-              }
-              secondary={r.comment ?? null}
-            />
-          </ListItem>
-        ))}
+              )}
+            </ListItem>
+          );
+        })}
         {ratingsData?.total === 0 && (
           <Typography color="text.secondary">No ratings yet — be the first!</Typography>
         )}
@@ -304,6 +518,22 @@ export function MovieDetailPage() {
         <Button onClick={() => setRatingsPage((p) => p + 1)} sx={{ mt: 1 }}>
           Load more reviews
         </Button>
+      )}
+
+      {similarMovies && similarMovies.length > 0 && (
+        <>
+          <Divider sx={{ my: 4 }} />
+          <Typography variant="h5" gutterBottom>
+            You might also like
+          </Typography>
+          <Grid container spacing={{ xs: 2, sm: 3 }}>
+            {similarMovies.map((similar) => (
+              <Grid item xs={6} sm={4} md={3} lg={2.4} key={similar.id}>
+                <MovieCard movie={similar} />
+              </Grid>
+            ))}
+          </Grid>
+        </>
       )}
     </Box>
   );

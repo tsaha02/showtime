@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   Box,
@@ -19,15 +19,29 @@ import {
   Divider,
   Paper,
   Grid,
+  IconButton,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
 import LocalActivityOutlinedIcon from "@mui/icons-material/LocalActivityOutlined";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import FastfoodOutlinedIcon from "@mui/icons-material/FastfoodOutlined";
+import AddIcon from "@mui/icons-material/Add";
+import RemoveIcon from "@mui/icons-material/Remove";
+import AccountBalanceWalletOutlinedIcon from "@mui/icons-material/AccountBalanceWalletOutlined";
+import VolunteerActivismOutlinedIcon from "@mui/icons-material/VolunteerActivismOutlined";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
-import { useGetSeatMapQuery, useConfirmBookingMutation, useCreatePaymentIntentMutation } from "../store/api";
+import {
+  useGetSeatMapQuery,
+  useConfirmBookingMutation,
+  useCreatePaymentIntentMutation,
+  usePreviewCouponMutation,
+  useGetFoodItemsQuery,
+  useGetDonationsTotalQuery,
+} from "../store/api";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import {
   setSeatMap,
@@ -42,7 +56,8 @@ import { getErrorMessage } from "../lib/apiError";
 import { SeatMapGrid } from "../components/SeatMapGrid";
 import { TicketQRCode } from "../components/TicketQRCode";
 import { StripePaymentForm } from "../components/StripePaymentForm";
-import type { BookingDTO, CreatePaymentIntentResponseDTO, SeatCategory } from "@showtime/shared";
+import { downloadTicketPdf } from "../lib/downloadTicketPdf";
+import type { BookingDTO, CouponPreviewDTO, CreatePaymentIntentResponseDTO, SeatCategory } from "@showtime/shared";
 
 const STEPS = ["Select Seats", "Details", "Confirm & Pay", "Success"];
 
@@ -76,8 +91,50 @@ export function SeatMapPage() {
   const [paymentIntentInfo, setPaymentIntentInfo] = useState<CreatePaymentIntentResponseDTO | null>(null);
   const [isPreparingPayment, setIsPreparingPayment] = useState(false);
 
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<CouponPreviewDTO & { code: string } | null>(null);
+  const [couponMessage, setCouponMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const ticketRef = useRef<HTMLDivElement>(null);
+
+  // Food & Beverages — quantity per foodItemId, 0 entries omitted from the
+  // payload sent to the API (only items the guest actually wants).
+  const { data: foodItems } = useGetFoodItemsQuery();
+  const [foodQuantities, setFoodQuantities] = useState<Record<string, number>>({});
+  const [useWallet, setUseWallet] = useState(false);
+  const [roundUpDonation, setRoundUpDonation] = useState(false);
+  const { data: donationsTotal } = useGetDonationsTotalQuery();
+  const [splitCount, setSplitCount] = useState(1);
+
+  const foodItemsPayload = useMemo(
+    () =>
+      Object.entries(foodQuantities)
+        .filter(([, quantity]) => quantity > 0)
+        .map(([foodItemId, quantity]) => ({ foodItemId, quantity })),
+    [foodQuantities],
+  );
+  const foodTotal = useMemo(
+    () => (foodItems ?? []).reduce((sum, item) => sum + (foodQuantities[item.id] ?? 0) * item.price, 0),
+    [foodItems, foodQuantities],
+  );
+  const foodItemsByCategory = useMemo(() => {
+    const groups: Record<string, NonNullable<typeof foodItems>> = {};
+    for (const item of foodItems ?? []) {
+      if (!groups[item.category]) groups[item.category] = [];
+      groups[item.category].push(item);
+    }
+    return groups;
+  }, [foodItems]);
+
+  const updateFoodQty = (id: string, delta: number) => {
+    setFoodQuantities((prev) => {
+      const next = Math.min(20, Math.max(0, (prev[id] ?? 0) + delta));
+      return { ...prev, [id]: next };
+    });
+  };
+
   const [confirmBooking, { isLoading: isConfirming }] = useConfirmBookingMutation();
   const [createPaymentIntent] = useCreatePaymentIntentMutation();
+  const [previewCoupon, { isLoading: isApplyingCoupon }] = usePreviewCouponMutation();
 
   // Live socket updates for this show while the page is open.
   useShowRoom(showId || null);
@@ -119,7 +176,14 @@ export function SeatMapPage() {
   useEffect(() => {
     if (activeStep !== 2 || paymentIntentInfo || isPreparingPayment || heldSeats.length === 0) return;
     setIsPreparingPayment(true);
-    createPaymentIntent({ showId, seatIds: heldSeats.map((s) => s.id) })
+    createPaymentIntent({
+      showId,
+      seatIds: heldSeats.map((s) => s.id),
+      couponCode: appliedCoupon?.code,
+      foodItems: foodItemsPayload.length ? foodItemsPayload : undefined,
+      useWallet: user && useWallet ? true : undefined,
+      roundUpDonation: roundUpDonation || undefined,
+    })
       .unwrap()
       .then(setPaymentIntentInfo)
       .catch((err) => {
@@ -130,6 +194,27 @@ export function SeatMapPage() {
       .finally(() => setIsPreparingPayment(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeStep, paymentIntentInfo, isPreparingPayment]);
+
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) return;
+    try {
+      const result = await previewCoupon({
+        code: couponCode.trim(),
+        showId,
+        seatIds: heldSeats.map((s) => s.id),
+      }).unwrap();
+      if (result.valid) {
+        setAppliedCoupon({ ...result, code: couponCode.trim() });
+        setCouponMessage({ text: `✓ Coupon applied — ₹${result.discountAmount} off`, ok: true });
+      } else {
+        setAppliedCoupon(null);
+        setCouponMessage({ text: result.message || "Invalid code", ok: false });
+      }
+    } catch (err) {
+      setAppliedCoupon(null);
+      setCouponMessage({ text: getErrorMessage(err as any), ok: false });
+    }
+  };
 
   const goToDetails = () => {
     if (heldSeats.length === 0) {
@@ -164,6 +249,10 @@ export function SeatMapPage() {
         showId,
         seatIds: heldSeats.map((s) => s.id),
         guestDetails: user ? undefined : { guestName, guestEmail, guestPhone: guestPhone || undefined },
+        couponCode: appliedCoupon?.code,
+        foodItems: foodItemsPayload.length ? foodItemsPayload : undefined,
+        useWallet: user && useWallet ? true : undefined,
+        roundUpDonation: roundUpDonation || undefined,
         ...opts,
       }).unwrap();
       setConfirmedBooking(booking);
@@ -187,6 +276,9 @@ export function SeatMapPage() {
 
   const goBackFromConfirm = () => {
     setPaymentIntentInfo(null);
+    setAppliedCoupon(null);
+    setCouponMessage(null);
+    setCouponCode("");
     setActiveStep(user ? 0 : 1);
   };
 
@@ -202,6 +294,30 @@ export function SeatMapPage() {
   }
 
   const prices = data.show.prices;
+
+  // Pre-wallet total shown in the order summary / used to estimate wallet
+  // coverage for display only — the server always recomputes and enforces
+  // the authoritative amount.
+  const orderSubtotalBeforeWallet =
+    (appliedCoupon ? appliedCoupon.finalAmount : cartTotal) + foodTotal;
+
+  // Mirrors apps/api/src/services/donationService.ts's computeDonationAmount
+  // exactly — display-only preview; the server recomputes and charges the
+  // authoritative amount off the same base (seats − discount + food).
+  const donationPreview = roundUpDonation && orderSubtotalBeforeWallet > 0
+    ? (10 - (orderSubtotalBeforeWallet % 10)) % 10
+    : 0;
+
+  // What was actually charged for the confirmed booking (Success screen +
+  // split-the-bill calculator) — seats + food − discount + donation −
+  // wallet, mirroring the same formula the price breakdown above uses.
+  const totalCharged = confirmedBooking
+    ? confirmedBooking.totalAmount -
+      confirmedBooking.discountAmount +
+      confirmedBooking.foodTotal +
+      confirmedBooking.donationAmount -
+      confirmedBooking.walletAmountUsed
+    : 0;
 
   // Per-category subtotal for the order summary breakdown (falls back to a
   // flat seat-count line when everything's in one category).
@@ -238,6 +354,80 @@ export function SeatMapPage() {
         <Box sx={{ pb: 10 }}>
           <SeatMapGrid showId={showId} seats={seatMap} prices={prices} />
 
+          {heldSeats.length > 0 && foodItems && foodItems.length > 0 && (
+            <Card sx={{ mt: 3 }}>
+              <CardContent>
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+                  <FastfoodOutlinedIcon color="secondary" />
+                  <Typography variant="h6">Food & Beverages</Typography>
+                </Stack>
+                <Stack spacing={3}>
+                  {(["SNACK", "DRINK", "COMBO"] as const)
+                    .filter((category) => foodItemsByCategory[category]?.length)
+                    .map((category) => (
+                      <Box key={category}>
+                        <Typography variant="overline" color="text.secondary">
+                          {category === "SNACK" ? "Snacks" : category === "DRINK" ? "Drinks" : "Combos"}
+                        </Typography>
+                        <Stack spacing={1.5} sx={{ mt: 1 }}>
+                          {foodItemsByCategory[category].map((item) => (
+                            <Stack
+                              key={item.id}
+                              direction="row"
+                              alignItems="center"
+                              justifyContent="space-between"
+                              spacing={2}
+                              flexWrap="wrap"
+                            >
+                              <Box sx={{ minWidth: 180 }}>
+                                <Typography variant="body1">{item.name}</Typography>
+                                {item.description && (
+                                  <Typography variant="body2" color="text.secondary">
+                                    {item.description}
+                                  </Typography>
+                                )}
+                                <Typography variant="body2" color="text.secondary">
+                                  ₹{item.price}
+                                </Typography>
+                              </Box>
+                              <Stack direction="row" alignItems="center" spacing={1}>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => updateFoodQty(item.id, -1)}
+                                  disabled={(foodQuantities[item.id] ?? 0) === 0}
+                                  aria-label={`Decrease ${item.name} quantity`}
+                                >
+                                  <RemoveIcon fontSize="small" />
+                                </IconButton>
+                                <Typography sx={{ width: 24, textAlign: "center" }}>
+                                  {foodQuantities[item.id] ?? 0}
+                                </Typography>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => updateFoodQty(item.id, 1)}
+                                  disabled={(foodQuantities[item.id] ?? 0) >= 20}
+                                  aria-label={`Increase ${item.name} quantity`}
+                                >
+                                  <AddIcon fontSize="small" />
+                                </IconButton>
+                              </Stack>
+                            </Stack>
+                          ))}
+                        </Stack>
+                      </Box>
+                    ))}
+                </Stack>
+                {foodTotal > 0 && (
+                  <Stack direction="row" justifyContent="flex-end" sx={{ mt: 2 }}>
+                    <Typography variant="subtitle2" color="secondary.main">
+                      Food total: ₹{foodTotal}
+                    </Typography>
+                  </Stack>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Sticky group-booking cart summary: makes it obvious mid-selection
               that multiple seats are being accumulated into one booking,
               not just a single seat pick. */}
@@ -273,7 +463,7 @@ export function SeatMapPage() {
               )}
             </Box>
             <Stack direction="row" spacing={2} alignItems="center">
-              <Typography variant="h6">Total: ₹{cartTotal}</Typography>
+              <Typography variant="h6">Total: ₹{cartTotal + foodTotal}</Typography>
               <Button variant="contained" size="large" onClick={goToDetails} disabled={heldSeats.length === 0}>
                 Continue
               </Button>
@@ -371,12 +561,163 @@ export function SeatMapPage() {
 
                 <Divider sx={{ mb: 2 }} />
 
+                <Stack direction="row" spacing={1} sx={{ mb: 1.5 }}>
+                  <TextField
+                    label="Coupon code"
+                    size="small"
+                    placeholder="Try WELCOME10"
+                    value={couponCode}
+                    onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                    disabled={!!appliedCoupon}
+                    fullWidth
+                  />
+                  {appliedCoupon ? (
+                    <Button
+                      variant="outlined"
+                      onClick={() => {
+                        setAppliedCoupon(null);
+                        setCouponMessage(null);
+                        setCouponCode("");
+                        setPaymentIntentInfo(null);
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outlined"
+                      onClick={async () => {
+                        await handleApplyCoupon();
+                        setPaymentIntentInfo(null);
+                      }}
+                      disabled={isApplyingCoupon || !couponCode.trim()}
+                    >
+                      Apply
+                    </Button>
+                  )}
+                </Stack>
+                {couponMessage && (
+                  <Typography
+                    variant="body2"
+                    color={couponMessage.ok ? "success.main" : "error.main"}
+                    sx={{ mb: 1.5 }}
+                  >
+                    {couponMessage.text}
+                  </Typography>
+                )}
+
+                <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Subtotal
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    ₹{cartTotal}
+                  </Typography>
+                </Stack>
+                {foodTotal > 0 && (
+                  <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Food total
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      ₹{foodTotal}
+                    </Typography>
+                  </Stack>
+                )}
+                {appliedCoupon && (
+                  <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
+                    <Typography variant="body2" color="success.main">
+                      Discount ({appliedCoupon.code})
+                    </Typography>
+                    <Typography variant="body2" color="success.main">
+                      -₹{appliedCoupon.discountAmount}
+                    </Typography>
+                  </Stack>
+                )}
+
+                {user && (
+                  <>
+                    <Divider sx={{ my: 1.5 }} />
+                    <Stack direction="row" alignItems="center" justifyContent="space-between" flexWrap="wrap">
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={useWallet}
+                            onChange={(e) => {
+                              setUseWallet(e.target.checked);
+                              setPaymentIntentInfo(null);
+                            }}
+                          />
+                        }
+                        label={
+                          <Stack direction="row" alignItems="center" spacing={0.5}>
+                            <AccountBalanceWalletOutlinedIcon fontSize="small" color="action" />
+                            <Typography variant="body2">Use wallet balance</Typography>
+                          </Stack>
+                        }
+                      />
+                      <Typography variant="caption" color="text.secondary">
+                        ₹{user.walletBalance} available
+                      </Typography>
+                    </Stack>
+                    {useWallet && (
+                      <Typography variant="body2" color="success.main" sx={{ mb: 1 }}>
+                        ~₹{Math.min(user.walletBalance, Math.max(0, orderSubtotalBeforeWallet))} will be applied from
+                        your wallet
+                      </Typography>
+                    )}
+                  </>
+                )}
+
+                <Divider sx={{ my: 1.5 }} />
+                <Stack direction="row" alignItems="flex-start" justifyContent="space-between" flexWrap="wrap">
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={roundUpDonation}
+                        onChange={(e) => {
+                          setRoundUpDonation(e.target.checked);
+                          setPaymentIntentInfo(null);
+                        }}
+                      />
+                    }
+                    label={
+                      <Stack direction="row" alignItems="center" spacing={0.5}>
+                        <VolunteerActivismOutlinedIcon fontSize="small" color="action" />
+                        <Typography variant="body2">
+                          Round up{donationPreview > 0 ? ` to ₹${orderSubtotalBeforeWallet + donationPreview}` : ""}{" "}
+                          and donate the difference
+                        </Typography>
+                      </Stack>
+                    }
+                  />
+                </Stack>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                  Demo feature — no real charity receives this, but it's charged the same as everything else
+                  (Stripe test mode).
+                </Typography>
+                {donationsTotal !== undefined && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+                    Join others — ₹{donationsTotal} raised so far (demo total)
+                  </Typography>
+                )}
+                {donationPreview > 0 && (
+                  <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Donation round-up
+                    </Typography>
+                    <Typography variant="body2">₹{donationPreview}</Typography>
+                  </Stack>
+                )}
+
+                <Divider sx={{ mb: 2, mt: user ? 0 : 2 }} />
+
                 <Stack direction="row" justifyContent="space-between" alignItems="baseline">
                   <Typography variant="subtitle1" fontWeight={700}>
                     Total
                   </Typography>
                   <Typography variant="h5" color="secondary.main" fontWeight={800}>
-                    ₹{cartTotal}
+                    ₹{orderSubtotalBeforeWallet + donationPreview}
                   </Typography>
                 </Stack>
               </CardContent>
@@ -473,19 +814,81 @@ export function SeatMapPage() {
                         </Stack>
                       ))}
                     </Stack>
+                    {confirmedBooking.foodItems.length > 0 && (
+                      <>
+                        <Divider sx={{ my: 2 }} />
+                        <Typography variant="overline" color="text.secondary">
+                          Food & Beverages
+                        </Typography>
+                        <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+                          {confirmedBooking.foodItems.map((item, idx) => (
+                            <Stack key={idx} direction="row" justifyContent="space-between">
+                              <Typography variant="body2" color="text.secondary">
+                                {item.name} × {item.quantity}
+                              </Typography>
+                              <Typography variant="body2">₹{item.price * item.quantity}</Typography>
+                            </Stack>
+                          ))}
+                        </Stack>
+                      </>
+                    )}
                     <Divider sx={{ my: 2 }} />
+                    {confirmedBooking.discountAmount > 0 && (
+                      <>
+                        <Stack direction="row" justifyContent="space-between">
+                          <Typography variant="body2" color="text.secondary">
+                            Subtotal
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            ₹{confirmedBooking.totalAmount}
+                          </Typography>
+                        </Stack>
+                        <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
+                          <Typography variant="body2" color="success.main">
+                            Coupon {confirmedBooking.couponCode} savings
+                          </Typography>
+                          <Typography variant="body2" color="success.main">
+                            -₹{confirmedBooking.discountAmount}
+                          </Typography>
+                        </Stack>
+                      </>
+                    )}
+                    {confirmedBooking.walletAmountUsed > 0 && (
+                      <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="success.main">
+                          Paid from wallet
+                        </Typography>
+                        <Typography variant="body2" color="success.main">
+                          -₹{confirmedBooking.walletAmountUsed}
+                        </Typography>
+                      </Stack>
+                    )}
+                    {confirmedBooking.donationAmount > 0 && (
+                      <Stack direction="row" justifyContent="space-between" sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Charity round-up (demo)
+                        </Typography>
+                        <Typography variant="body2">₹{confirmedBooking.donationAmount}</Typography>
+                      </Stack>
+                    )}
                     <Stack direction="row" justifyContent="space-between" sx={{ mb: 3 }}>
                       <Typography variant="h6">Total paid</Typography>
                       <Typography variant="h6" color="secondary.main" fontWeight={700}>
-                        ₹{confirmedBooking.totalAmount}
+                        ₹{totalCharged}
                       </Typography>
                     </Stack>
-                    <Stack direction="row" spacing={2}>
+                    <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
                       <Button variant="contained" onClick={() => navigate("/")}>
                         Back to Home
                       </Button>
                       <Button variant="outlined" onClick={() => window.print()}>
                         Print ticket
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        onClick={() => downloadTicketPdf(ticketRef, `ticket-${confirmedBooking.reference}.pdf`)}
+                      >
+                        Download PDF
                       </Button>
                     </Stack>
                   </CardContent>
@@ -493,10 +896,53 @@ export function SeatMapPage() {
               </Grid>
               <Grid item xs={12} sm={5} sx={{ display: "flex" }}>
                 <Box sx={{ width: "100%", display: "flex", justifyContent: "center" }}>
-                  <TicketQRCode booking={confirmedBooking} />
+                  <TicketQRCode ref={ticketRef} booking={confirmedBooking} />
                 </Box>
               </Grid>
             </Grid>
+
+            <Card sx={{ mt: 3 }}>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom>
+                  Split the bill
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  A quick calculator for splitting this booking with friends — nothing is charged or collected here,
+                  just the math and a shareable summary.
+                </Typography>
+                <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+                  <TextField
+                    label="How many people?"
+                    type="number"
+                    size="small"
+                    value={splitCount}
+                    onChange={(e) =>
+                      setSplitCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))
+                    }
+                    sx={{ width: 160 }}
+                    inputProps={{ min: 1, max: 50 }}
+                  />
+                  <Typography variant="h6">
+                    ₹{Math.ceil(totalCharged / splitCount)} <Typography component="span" variant="body2" color="text.secondary">per person</Typography>
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    startIcon={<ContentCopyIcon fontSize="small" />}
+                    onClick={async () => {
+                      const summary = `I booked ${confirmedBooking.seats.length} seat${confirmedBooking.seats.length > 1 ? "s" : ""} for ${confirmedBooking.movieTitle} — total ₹${totalCharged}, split ${splitCount} way${splitCount > 1 ? "s" : ""} = ₹${Math.ceil(totalCharged / splitCount)} each. Ref: ${confirmedBooking.reference}`;
+                      try {
+                        await navigator.clipboard.writeText(summary);
+                        dispatch(showToast({ message: "Summary copied to clipboard", severity: "success" }));
+                      } catch {
+                        dispatch(showToast({ message: "Couldn't copy — clipboard access denied", severity: "warning" }));
+                      }
+                    }}
+                  >
+                    Copy summary
+                  </Button>
+                </Stack>
+              </CardContent>
+            </Card>
           </Box>
         </Box>
       )}

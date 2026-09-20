@@ -98,18 +98,42 @@ export interface SeatDTO {
   col: number;
   label: string;
   category: SeatCategory;
+  wheelchairAccessible: boolean;
 }
+
+// A scheduled, bookable session — for a Movie OR an Event (`kind`
+// says which; the corresponding id is set, the other is null). Used
+// for both `GET /api/movies/:id/shows` and `GET /api/events/:id/sessions`
+// — one shape, since the two are otherwise identical (same screen/
+// pricing/seat-hold machinery underneath).
+export type ShowKind = "MOVIE" | "EVENT";
 
 export interface ShowDTO {
   id: string;
-  movieId: string;
+  kind: ShowKind;
+  movieId: string | null;
+  eventId: string | null;
   screenId: string;
   startTime: string;
   endTime: string;
   screenName: string;
   theatreName: string;
   theatreCity: string;
+  format: string;
+  language: string;
   prices: Record<SeatCategory, number>;
+}
+
+export type EventCategory = "CONCERT" | "COMEDY" | "SPORTS" | "THEATRE_PLAY" | "WORKSHOP" | "OTHER";
+
+export interface EventDTO {
+  id: string;
+  title: string;
+  description: string;
+  category: EventCategory;
+  durationMins: number;
+  posterUrl: string | null;
+  createdAt: string;
 }
 
 // Seat map entry as sent to the client: physical seat + its live status.
@@ -140,6 +164,24 @@ export interface BookingSeatDTO {
   price: number;
 }
 
+export type FoodCategory = "SNACK" | "DRINK" | "COMBO";
+
+export interface FoodItemDTO {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  category: FoodCategory;
+  imageUrl: string | null;
+  active: boolean;
+}
+
+export interface BookingFoodItemDTO {
+  name: string;
+  price: number;
+  quantity: number;
+}
+
 export interface BookingDTO {
   id: string;
   reference: string;
@@ -151,9 +193,41 @@ export interface BookingDTO {
   showStartTime: string;
   seats: BookingSeatDTO[];
   totalAmount: number;
+  couponCode: string | null;
+  discountAmount: number;
+  foodItems: BookingFoodItemDTO[];
+  foodTotal: number;
+  walletAmountUsed: number;
+  donationAmount: number;
   guestName: string | null;
   guestEmail: string | null;
   createdAt: string;
+}
+
+export type CouponType = "PERCENT" | "FLAT";
+
+export interface CouponDTO {
+  id: string;
+  code: string;
+  type: CouponType;
+  value: number;
+  maxUses: number | null;
+  usedCount: number;
+  active: boolean;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+// Response for POST /api/bookings/preview-coupon — validates a code
+// against a specific cart total WITHOUT applying it yet (the actual
+// application/verification happens again, non-negotiably, inside
+// confirmBooking — this endpoint exists purely so the checkout UI can
+// show "₹50 off" before the user commits to paying).
+export interface CouponPreviewDTO {
+  valid: boolean;
+  message: string;
+  discountAmount: number;
+  finalAmount: number;
 }
 
 // Response for POST /api/bookings/create-payment-intent. The
@@ -171,6 +245,14 @@ export interface RatingDTO {
   userName: string;
   stars: number;
   comment: string | null;
+  isSpoiler: boolean;
+  helpfulCount: number;
+  notHelpfulCount: number;
+  // Only present when the request is authenticated — the viewer's own
+  // vote on this rating, if they've cast one. Absent (not just null) for
+  // anonymous requests, since "no vote" and "not logged in" are different
+  // things the frontend needs to distinguish.
+  myVote?: boolean | null;
   createdAt: string;
 }
 
@@ -180,6 +262,37 @@ export interface AuthUserDTO {
   email: string;
   role: UserRole;
   emailVerified: boolean;
+  walletBalance: number;
+  referralCode: string;
+}
+
+export interface AnalyticsOverviewDTO {
+  windowDays: number;
+  totalRevenue: number;
+  totalBookings: number;
+  totalSeatsSold: number;
+  bookingsByStatus: Record<string, number>;
+  revenueByDay: { date: string; revenue: number }[];
+  topMovies: { movieId: string; title: string; revenue: number; bookings: number }[];
+  topEvents: { eventId: string; title: string; revenue: number; bookings: number }[];
+  bookingsByCity: { city: string; bookings: number }[];
+}
+
+export interface GiftCardPurchaseResponseDTO {
+  code: string;
+  value: number;
+}
+
+export type CreateGenericPaymentIntentResponseDTO =
+  | { stripeConfigured: true; clientSecret: string; paymentIntentId: string; amount: number }
+  | { stripeConfigured: false };
+
+export interface WalletTransactionDTO {
+  id: string;
+  amount: number;
+  reason: "CANCELLATION_REFUND" | "REFERRAL_BONUS" | "SPENT_AT_CHECKOUT" | "ADMIN_ADJUSTMENT";
+  bookingId: string | null;
+  createdAt: string;
 }
 
 // --- Socket.io payload shapes ---

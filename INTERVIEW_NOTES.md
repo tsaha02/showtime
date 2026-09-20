@@ -468,6 +468,47 @@ happy path" — the fix was one small `try/catch`, but finding it required
 actually testing the adversarial case (a curl with a made-up id), not
 just the happy path.
 
+### Coupons, food, and wallet — extending the pricing pipeline without touching the transaction
+
+The same "gate before the transaction, never inside it" lesson from
+Stripe above applies again to every later addition — coupons, F&B
+add-ons, and wallet spend all resolve to a single `finalAmount`
+*before* `confirmBooking`'s atomic transaction even opens; the
+transaction itself only ever sees one number to charge and one set of
+already-validated line items to persist.
+
+The discipline that actually prevents bugs here is narrower than that,
+though: `create-payment-intent` (which tells Stripe how much to
+charge) and `confirm` (which re-verifies that charge before booking
+anything) call the *exact same* pricing functions —
+`computeSeatsPricing` → `applyCoupon` → `computeFoodCart` → wallet
+deduction — in the exact same order. I actually hit the bug this
+guards against while building it: I added food items and wallet
+support to `confirmBooking()` first, tested it in isolation, and it
+worked — but `create-payment-intent` still only knew about seats and
+coupons, so it created a Stripe PaymentIntent for the *wrong* (too
+low) amount the moment a food item was added. `confirmBooking`'s
+independent recomputation caught the mismatch correctly (that's the
+whole point of never trusting the client) and rejected the booking —
+which is the right failure mode, but it meant checkout was broken for
+anyone who added a snack. The fix was mechanical once diagnosed: make
+`create-payment-intent` run the identical pricing pipeline. Worth
+mentioning as a real example of "two callers computing the same value
+must call the same function" not being a style preference — it's the
+difference between a feature working and silently failing at the last
+step, and it's exactly the kind of drift that's easy to introduce
+piecemeal (I built the confirm-side logic first) and only surfaces
+under an end-to-end test, not a unit test of either endpoint alone.
+
+The wallet ledger follows the same "one function, all writers" rule:
+every balance change (spend, refund, referral bonus) goes through
+`adjustWallet`, which updates the denormalized `User.walletBalance`
+and appends a `WalletTransaction` row in the same DB transaction —
+so the cached balance is provably never out of sync with the ledger
+it's derived from, the same reasoning as `Booking.seatsSnapshot` being
+a point-in-time copy rather than something recomputed from
+possibly-since-changed data.
+
 ---
 
 ## 5. Security considerations

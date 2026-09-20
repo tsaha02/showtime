@@ -9,15 +9,24 @@ import { notFoundHandler, errorHandler } from "./middleware/errorHandler";
 
 import authRoutes from "./routes/auth.routes";
 import movieRoutes from "./routes/movies.routes";
+import eventRoutes from "./routes/events.routes";
 import theatreRoutes from "./routes/theatres.routes";
 import showRoutes from "./routes/shows.routes";
 import seatRoutes from "./routes/seats.routes";
 import bookingRoutes from "./routes/bookings.routes";
 import ratingRoutes from "./routes/ratings.routes";
 import locationRoutes from "./routes/location.routes";
+import waitlistRoutes from "./routes/waitlist.routes";
+import foodItemRoutes from "./routes/foodItems.routes";
+import walletRoutes from "./routes/wallet.routes";
+import giftCardRoutes from "./routes/giftCards.routes";
+import offersRoutes from "./routes/offers.routes";
+import donationsRoutes from "./routes/donations.routes";
 
 import adminAuthRoutes from "./routes/admin/auth.routes";
 import adminMovieRoutes from "./routes/admin/movies.routes";
+import adminEventRoutes from "./routes/admin/events.routes";
+import adminEventSessionRoutes from "./routes/admin/eventSessions.routes";
 import adminTheatreRoutes from "./routes/admin/theatres.routes";
 import adminLayoutRoutes from "./routes/admin/layouts.routes";
 import adminShowRoutes from "./routes/admin/shows.routes";
@@ -25,6 +34,10 @@ import adminBookingRoutes from "./routes/admin/bookings.routes";
 import adminRatingRoutes from "./routes/admin/ratings.routes";
 import adminExternalMovieRoutes from "./routes/admin/externalMovies.routes";
 import adminTheatreDiscoveryRoutes from "./routes/admin/theatreDiscovery.routes";
+import adminCouponRoutes from "./routes/admin/coupons.routes";
+import adminFoodItemRoutes from "./routes/admin/foodItems.routes";
+import adminAnalyticsRoutes from "./routes/admin/analytics.routes";
+import adminGiftCardRoutes from "./routes/admin/giftCards.routes";
 
 export function createApp() {
   const app = express();
@@ -49,15 +62,24 @@ export function createApp() {
 
   app.use("/api/auth", authRoutes);
   app.use("/api/movies", movieRoutes);
+  app.use("/api/events", eventRoutes);
   app.use("/api/theatres", theatreRoutes);
   app.use("/api/shows", showRoutes); // /api/shows/:showId/seatmap
   app.use("/api/seats", seatRoutes); // /api/seats/hold, /api/seats/release
   app.use("/api/bookings", bookingRoutes);
   app.use("/api/ratings", ratingRoutes);
   app.use("/api/locations", locationRoutes);
+  app.use("/api/waitlist", waitlistRoutes);
+  app.use("/api/food-items", foodItemRoutes);
+  app.use("/api/wallet", walletRoutes);
+  app.use("/api/gift-cards", giftCardRoutes);
+  app.use("/api/offers", offersRoutes);
+  app.use("/api/donations", donationsRoutes);
 
   app.use("/api/admin/auth", adminAuthRoutes);
   app.use("/api/admin/movies", adminMovieRoutes);
+  app.use("/api/admin/events", adminEventRoutes);
+  app.use("/api/admin/event-sessions", adminEventSessionRoutes);
   app.use("/api/admin/theatres", adminTheatreRoutes);
   app.use("/api/admin/layouts", adminLayoutRoutes);
   app.use("/api/admin/shows", adminShowRoutes);
@@ -65,6 +87,10 @@ export function createApp() {
   app.use("/api/admin/ratings", adminRatingRoutes);
   app.use("/api/admin/external-movies", adminExternalMovieRoutes);
   app.use("/api/admin/theatre-discovery", adminTheatreDiscoveryRoutes);
+  app.use("/api/admin/coupons", adminCouponRoutes);
+  app.use("/api/admin/food-items", adminFoodItemRoutes);
+  app.use("/api/admin/analytics", adminAnalyticsRoutes);
+  app.use("/api/admin/gift-cards", adminGiftCardRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

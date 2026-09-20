@@ -17,15 +17,18 @@ import {
   useTheme,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
-import LocalMoviesIcon from "@mui/icons-material/LocalMovies";
 import { Link as RouterLink, useNavigate, useLocation } from "react-router-dom";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { useLogoutMutation } from "../store/api";
 import { clearUser } from "../store/slices/authSlice";
 import { showToast } from "../store/slices/uiSlice";
+import { BrandLogo } from "./BrandLogo";
 
 const NAV_LINKS = [
   { to: "/search-movies", label: "Search Movies" },
+  { to: "/events", label: "Events" },
+  { to: "/offers", label: "Offers" },
+  { to: "/gift-cards", label: "Gift Cards" },
   { to: "/checkout/find-booking", label: "Find Booking" },
 ];
 
@@ -50,19 +53,9 @@ export function NavBar() {
   const closeDrawer = () => setDrawerOpen(false);
 
   const brand = (
-    <Stack
-      direction="row"
-      alignItems="center"
-      spacing={1}
-      component={RouterLink}
-      to="/"
-      sx={{ textDecoration: "none", color: "inherit" }}
-    >
-      <LocalMoviesIcon color="primary" />
-      <Typography variant="h6" component="span">
-        ShowTime
-      </Typography>
-    </Stack>
+    <Box component={RouterLink} to="/" sx={{ textDecoration: "none", color: "inherit", display: "inline-flex" }}>
+      <BrandLogo />
+    </Box>
   );
 
   return (
@@ -88,6 +81,9 @@ export function NavBar() {
                 <>
                   <Button component={RouterLink} to="/my-bookings" color="inherit">
                     My Bookings
+                  </Button>
+                  <Button component={RouterLink} to="/profile" color="inherit">
+                    Profile
                   </Button>
                   <Typography variant="body2" sx={{ opacity: 0.7 }}>
                     {user.name}
@@ -134,6 +130,11 @@ export function NavBar() {
             {user && (
               <ListItemButton component={RouterLink} to="/my-bookings" onClick={closeDrawer} selected={location.pathname === "/my-bookings"}>
                 <ListItemText primary="My Bookings" />
+              </ListItemButton>
+            )}
+            {user && (
+              <ListItemButton component={RouterLink} to="/profile" onClick={closeDrawer} selected={location.pathname === "/profile"}>
+                <ListItemText primary="Profile" />
               </ListItemButton>
             )}
           </List>

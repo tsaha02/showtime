@@ -25,7 +25,11 @@ router.get(
 
     const bookings = await prisma.booking.findMany({
       where,
-      include: { show: { include: { movie: true, screen: { include: { theatre: true } } } }, user: true },
+      include: {
+        show: { include: { movie: true, event: true, screen: { include: { theatre: true } } } },
+        user: true,
+        foodItems: true,
+      },
       orderBy: { createdAt: "desc" },
       take: 200,
     });

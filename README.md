@@ -314,10 +314,10 @@ independent of login — see Layer 1 above).
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| POST | `/api/auth/register` | — | `{name,email,password,confirmPassword}` → sets `st_customer_token` cookie |
+| POST | `/api/auth/register` | — | `{name,email,password,confirmPassword,referralCode?}` → sets `st_customer_token` cookie; an optional referrer's code, silently ignored if invalid, never blocks registration |
 | POST | `/api/auth/login` | — | `{email,password}` |
 | POST | `/api/auth/logout` | — | clears cookie |
-| GET | `/api/auth/me` | customer cookie | current user (includes `emailVerified`) |
+| GET | `/api/auth/me` | customer cookie | current user (includes `emailVerified`, `walletBalance`, `referralCode`) |
 | POST | `/api/auth/verify-email` | — | `{email,otp}` → 204, or 400 if wrong/expired |
 | POST | `/api/auth/resend-otp` | — | `{email}` → always 204 (doesn't reveal account state) |
 | POST | `/api/auth/forgot-password` | — | `{email}` → always 204 (doesn't reveal account state) |
@@ -329,7 +329,12 @@ independent of login — see Layer 1 above).
 | GET | `/api/movies/discover/:externalId` | — (rate-limited) | OMDb details (incl. director/cast/awards/language/country/rated) + IMDb rating + whether this title is bookable in ShowTime |
 | GET | `/api/movies/:id` | — | movie detail incl. average rating |
 | GET | `/api/movies/:id/shows?city=` | — | upcoming shows for a movie, optionally narrowed to one city (carries a previously-selected city into the movie detail page) |
-| GET | `/api/movies/:id/ratings?page=` | — | paginated reviews + star-count distribution |
+| GET | `/api/movies/:id/ratings?page=` | — (optionally authenticated) | paginated reviews + star-count distribution; `myVote` on each rating only when logged in |
+| GET | `/api/movies/:id/similar` | — | same-genre bookable movies, for "you might also like" |
+| GET | `/api/movies/recommended` | — (optionally authenticated) | personalized picks from the caller's own booking history; `[]` for guests |
+| GET | `/api/events?search=&category=&city=&bookable=` | — | event catalog — same semantics as `/api/movies` above, `category` instead of `genre` |
+| GET | `/api/events/:id` | — | event detail |
+| GET | `/api/events/:id/sessions?city=&format=&language=` | — | upcoming sessions for an event — same `ShowDTO` shape as `/api/movies/:id/shows`, booked through the identical seat-map/checkout flow |
 | GET | `/api/theatres` | — | theatre list |
 | GET | `/api/theatres/cities` | — | distinct **serviceable** city list (cities ShowTime actually has theatres in) |
 | GET | `/api/locations/india-cities` | — (rate-limited) | ~4,267 real Indian cities/towns, for the city picker's search box — see below |
@@ -337,13 +342,29 @@ independent of login — see Layer 1 above).
 | GET | `/api/shows/:showId/seatmap` | X-Session-Id | live seat statuses + per-category prices |
 | POST | `/api/seats/hold` | X-Session-Id | `{showId,seatId}` → 409 if taken |
 | POST | `/api/seats/release` | X-Session-Id | `{showId,seatId}` |
-| POST | `/api/bookings/create-payment-intent` | X-Session-Id | `{showId,seatIds}` → real Stripe PaymentIntent, or `{stripeConfigured:false}` if unconfigured |
-| POST | `/api/bookings/confirm` | X-Session-Id (+ optional cookie) | the transaction — see above |
-| GET | `/api/bookings/mine` | customer cookie | booking history |
+| POST | `/api/bookings/preview-coupon` | X-Session-Id | `{code,showId,seatIds}` → discount preview, re-verified independently at confirm time |
+| POST | `/api/bookings/create-payment-intent` | X-Session-Id | `{showId,seatIds,couponCode?,foodItems?,useWallet?,roundUpDonation?}` → real Stripe PaymentIntent for `finalAmount` (via the single shared `computeBookingCharges`), or `{stripeConfigured:false}` if unconfigured **or** wallet covers the order in full |
+| POST | `/api/bookings/confirm` | X-Session-Id (+ optional cookie) | the transaction — see above; same optional `couponCode`/`foodItems`/`useWallet`/`roundUpDonation` |
+| GET | `/api/bookings/mine` | customer cookie | booking history (incl. food items, coupon, wallet-used) |
 | POST | `/api/bookings/find` | — | `{reference,email}` guest lookup |
-| POST | `/api/bookings/:id/cancel` | customer cookie, owner only | frees the seats |
-| POST | `/api/ratings` | customer cookie | eligibility enforced server-side |
+| POST | `/api/bookings/:id/cancel` | customer cookie, owner only | frees the seats + refunds (Stripe refund and/or wallet credit — see above) |
+| GET | `/api/food-items` | — | active F&B menu for checkout |
+| GET | `/api/wallet/transactions` | customer cookie | the caller's own wallet ledger |
+| POST | `/api/ratings` | customer cookie | `{movieId,stars,comment?,isSpoiler?}`, eligibility enforced server-side |
+| POST | `/api/ratings/:id/vote` | customer cookie | `{helpful:boolean}` → upserts the caller's vote, can't vote on your own review |
+| GET | `/api/waitlist` / POST `/api/waitlist` | — | `{movieId,email}` "notify me" signup for an unscheduled movie |
+| GET | `/api/offers` | — | browsable "deals wall" over the active/unexpired Coupon table |
+| POST | `/api/gift-cards/create-payment-intent` | — | `{value}` (₹100-10,000) → PaymentIntent, or the mocked fallback |
+| POST | `/api/gift-cards/purchase` | — (optionally authenticated) | `{value,recipientEmail,purchasedByEmail?,message?,paymentIntentId?}` → `{code,value}`; emails the code to the recipient |
+| POST | `/api/gift-cards/redeem` | customer cookie | `{code}` → credits the full value into the caller's wallet, one-shot (can't be redeemed twice) |
+| GET | `/api/donations/total` | — | aggregate "₹X raised" across all confirmed bookings' round-up donations (demo feature, see below) |
 | POST/GET/PUT/DELETE | `/api/admin/*` | admin cookie (`st_admin_token`), role ADMIN | full catalog + booking/rating moderation CRUD — see `apps/api/src/routes/admin/` |
+| GET/POST/PUT/DELETE | `/api/admin/coupons` | admin cookie | coupon CRUD |
+| GET/POST/PUT/DELETE | `/api/admin/food-items` | admin cookie | F&B menu CRUD |
+| GET/POST/PUT/DELETE | `/api/admin/events` | admin cookie | event catalog CRUD |
+| GET/POST/DELETE | `/api/admin/event-sessions` | admin cookie | schedule/list/cancel event sessions onto a screen — mirrors `/api/admin/shows` |
+| GET | `/api/admin/gift-cards` | admin cookie | read-only gift-card activity (support visibility — not admin-created) |
+| GET | `/api/admin/analytics/overview?days=` | admin cookie | revenue/bookings/top-movies/top-events/city breakdown over a rolling window |
 | GET | `/api/admin/external-movies/search?query=` | admin cookie | proxies OMDb search — see below |
 | POST | `/api/admin/external-movies/import` | admin cookie | `{externalId}` → creates/updates a local `Movie` from OMDb data |
 | POST | `/api/admin/external-movies/bulk-import` | admin cookie | resolves ~65 curated real titles through OMDb in one request — see below |
@@ -682,6 +703,319 @@ failure path with a real Stripe response instead of a boolean flag.
 
 ---
 
+## Coupons, F&B, wallet, referrals, review voting, and admin analytics
+
+A further round of BookMyShow-parity features, layered on top of the
+booking/payment core above without changing it — every one of these
+plugs in as an additional line item or a gate *before* the atomic
+seat-booking transaction, never inside it.
+
+### Pricing pipeline: one function, two callers, no drift
+
+The checkout total now has four components — seats, coupon discount,
+food, wallet — computed by pricing functions
+(`computeSeatsPricing`, `applyCoupon`, `computeFoodCart`) that live in
+`apps/api/src/services/`. Both `POST /api/bookings/create-payment-intent`
+(which decides how much Stripe should charge) and
+`POST /api/bookings/confirm` (which re-verifies that charge before
+booking anything) call the exact same functions in the exact same
+order:
+
+```
+totalAmount (seats)  →  − discountAmount (coupon)  →  + foodTotal  →  − walletAmountUsed  =  finalAmount
+```
+
+This is the same "one function, two callers" discipline the original
+coupon/Stripe design already used — the alternative (each endpoint
+computing the total its own way) is exactly how you end up with a
+PaymentIntent for one amount and a confirm-time recomputation that
+disagrees with it. `finalAmount === 0` (wallet covers the whole order)
+is a real, tested case: Stripe can't create a ₹0 PaymentIntent, so
+`create-payment-intent` returns `{stripeConfigured: false}` in that
+case even when Stripe *is* configured, and the frontend's existing
+"skip Stripe Elements, call confirm directly" path — already built for
+the "Stripe not configured" case — handles it for free.
+
+### Coupons
+
+`Coupon` (code, PERCENT/FLAT, value, optional max uses/expiry) is
+plain admin-managed CRUD (`/api/admin/coupons`). `POST
+/api/bookings/preview-coupon` lets the checkout UI show "₹50 off"
+before payment; the discount is independently recomputed (never
+trusted from that preview) inside `confirmBooking`, and usage count is
+only incremented after a booking actually succeeds, inside the same
+transaction as the booking write.
+
+### Food & Beverage add-ons
+
+`FoodItem` (name, price, SNACK/DRINK/COMBO, active flag) is admin CRUD
+(`/api/admin/food-items`) with a public read-only menu at `GET
+/api/food-items`. `computeFoodCart` — the same "never trust
+client-supplied prices" rule as seats — looks up each item's real,
+current price and name server-side from `{foodItemId, quantity}`
+pairs and rejects deactivated items. A booking's food order is stored
+as `BookingFoodItem` rows, which snapshot name/price at order time
+(same reasoning as `seatsSnapshot`) so a later menu price change never
+rewrites a past receipt.
+
+### Wallet
+
+`User.walletBalance` is a denormalized running balance;
+`WalletTransaction` is the immutable ledger it's derived from. Every
+balance change goes through one function, `adjustWallet` (in
+`walletService.ts`), which updates both in the same Prisma transaction
+as whatever caused the change — a booking spend, a cancellation
+refund, or a referral bonus — so the cached balance can never drift
+from what the ledger says happened. `useWallet: true` at checkout
+applies **as much of the balance as covers the order**, never a
+client-dictated amount; the server decides the actual number.
+
+**Cancellation refunds** (`cancelBooking`) split the refund by how it
+was paid: the wallet-spent portion always goes back to the wallet; the
+cash portion goes to a real Stripe refund
+(`stripe.refunds.create`) when a `paymentIntentId` exists, falling
+back to a wallet credit if the Stripe call fails or if the original
+payment was the mocked fallback (no real charge existed to refund from
+a card in that case). The Stripe call happens *before* the DB
+transaction opens, not inside it — a transaction shouldn't sit open
+across a network call to a third party.
+
+### Referral program
+
+Every user gets a `referralCode` (8 random characters, generated at
+registration) and can optionally supply someone else's code as
+`referralCode` on `POST /api/auth/register`. The bonus (₹100 to both
+sides) is paid on the **referred user's first CONFIRMED booking**, not
+at signup — `awardReferralBonusIfEligible` checks
+`User.referralBonusAwarded` to guarantee it only ever fires once,
+inside the same transaction as that first booking.
+
+### Review helpfulness voting + spoiler tags
+
+`Rating.isSpoiler` (set by the reviewer) hides the review text behind
+a "contains spoilers" reveal on the frontend. `RatingVote` (upsert per
+`{ratingId, userId}`, `POST /api/ratings/:id/vote`) lets other users
+mark a review helpful/not-helpful; a reviewer can't vote on their own
+review. `GET /api/movies/:id/ratings` is now optionally authenticated
+(`optionalCustomerAuth`) purely so it can tell the viewer their own
+prior vote (`myVote`) apart from "not logged in" (`myVote` omitted
+entirely) versus "logged in, hasn't voted" (`myVote: null`).
+
+### Admin analytics dashboard
+
+`GET /api/admin/analytics/overview?days=` computes revenue, booking
+counts/status breakdown, seats sold, revenue-by-day, top movies, and
+bookings-by-city over a rolling window, by reducing over that window's
+`CONFIRMED` bookings in memory (see `analytics.routes.ts`) rather than
+a set of separate aggregate queries — at this project's scale that's
+simpler and exactly as correct as a real OLAP query would be, and it's
+one bounded query rather than several.
+
+---
+
+## BookMyShow-parity round: gift cards, accessibility, offers, loyalty, recommendations, donations
+
+Researched against BookMyShow's actual real-world feature set (gift
+cards, accessible seating, an offers wall, membership perks,
+personalized picks, and its BookASmile charity round-up) rather than
+guessed — then implemented what's realistically buildable in a demo's
+complexity budget, and explicitly skipped what isn't (see the end of
+this section).
+
+### Gift cards — a purchasable, giftable credit code
+
+Paid for like a booking (a real Stripe test-mode `PaymentIntent`, same
+verify-before-booking discipline, or the mocked fallback), then
+redeemed by anyone holding the code. Redemption is deliberately
+all-or-nothing: `GiftCard.value` is credited straight into the
+redeemer's wallet in one shot via the same `adjustWallet` every wallet
+change goes through, rather than the model tracking its own partial
+remaining balance — the wallet already supports spending a balance
+across many future bookings, so a second "partial balance" concept
+here would just be the same feature built twice.
+`POST /api/gift-cards/purchase` → `POST /api/gift-cards/redeem`.
+
+### Wheelchair-accessible seating
+
+`Seat.wheelchairAccessible` — purely informational (never affects
+price or the booking/hold concurrency logic), surfaced as a badge on
+the seat map and toggleable per-seat in the admin layout editor. The
+default seat-layout generator marks two aisle-adjacent front-row seats
+accessible by default, same as every other "reasonable default an
+admin can hand-edit" choice this generator makes.
+
+### A shared pricing pipeline (and the bug that made it necessary)
+
+Adding the donation round-up below caused the **exact same class of
+bug** that food/wallet support caused earlier in this project:
+`create-payment-intent` and `confirmBooking` each independently
+re-implemented "seats − discount + food − wallet," and the moment a
+new line item (the donation) was added to one and not the other, the
+two amounts drifted and every checkout with that feature enabled
+failed at the final confirm step. Rather than patch it a second time,
+`computeBookingCharges()` in `bookingService.ts` is now the ONE place
+this arithmetic exists — both endpoints call it and nothing else. Any
+future checkout line item belongs there, not duplicated into both
+routes again.
+
+### Charity round-up ("give a little extra")
+
+`roundUpDonation: true` at checkout rounds the pre-wallet total up to
+the next ₹10 and adds the difference to what's charged
+(`computeDonationAmount` in `donationService.ts`) — a real extra
+charge, but an explicitly-labeled **demo feature**: no real charity
+integration exists, the checkout UI says so, and since checkout is
+Stripe *test mode* only, no real money moves either way regardless.
+`GET /api/donations/total` powers a public "₹X raised (demo)" counter.
+
+### Loyalty tiers
+
+Computed live from a user's confirmed-booking count (never stored —
+one source of truth, same reasoning as not caching `Movie.averageRating`
+beyond what's already derived from `Rating`): BRONZE (0-4 bookings),
+SILVER (5-14, 1% cashback), GOLD (15+, 3% cashback). Cashback is a
+percentage of what was actually paid out of pocket, credited to the
+wallet via `adjustWallet` right after a booking confirms, same
+transaction as the referral-bonus check.
+
+### Recommendations ("you might also like" / "recommended for you")
+
+Deliberately simple and explainable — no ML model, no embeddings, just
+genre-token overlap between bookable movies (`recommendationService.ts`).
+`GET /api/movies/:id/similar` (same-genre movies, for a movie's own
+page) and `GET /api/movies/recommended` (personalized, based on the
+genres of a logged-in user's own booking history, falling back to
+newest releases with no history). Honest about what this is: a real,
+useful heuristic, not a dressed-up random shuffle, but not a claim of
+a trained model either.
+
+### Offers wall
+
+`GET /api/offers` — a public, browsable view over the existing Coupon
+backend (previously code-only: a coupon only helped you if you already
+knew it). Filters to active/unexpired/not-fully-used, and deliberately
+never exposes `usedCount` (an internal admin detail).
+
+### Group booking bill-split (an honest version)
+
+BookMyShow-style "group booking" implies collecting payment from
+multiple people — this app has no peer-to-peer payment rails to do
+that for real, and faking a "request sent" flow that doesn't actually
+collect money would be actively misleading. So this is what it
+actually is: a calculator on the booking success screen ("₹X ÷ N
+people = ₹Y each") plus a "copy summary" button for sharing the split
+via any channel the booker already uses — never a payment-collection
+promise this app can't keep.
+
+### Deliberately skipped from BookMyShow's real feature set (and why)
+
+- **BookMyShow Stream (OTT rental/purchase).** Needs real content
+  licensing — not something a demo can responsibly fake.
+- **BookMyShow ONLINE (livestreamed events).** Needs real video
+  infrastructure and licensing.
+- **BUZZ (entertainment news/editorial content).** Needs an editorial
+  content pipeline — low value added to a booking-flow demo relative
+  to its cost.
+- **Bank/wallet-partner cashback offers.** No real payment-partner
+  relationships exist to offer against; inventing one would be
+  presenting a fake business relationship as real.
+- **District (dining + events super-app).** The events half of this is
+  now built (see the next section) as its own bounded feature; the
+  dining-marketplace half is not.
+
+---
+
+## Events — a second bookable content type
+
+Concerts, comedy nights, plays — booked through the *exact same engine*
+as a movie, not a parallel one.
+
+### Why `Show` became generic instead of adding an `EventBooking` table
+
+The tempting-looking design is a full parallel stack: `EventVenue`,
+`EventSession`, `EventBooking`, `EventBookingSeat`. It was rejected
+specifically because of a bug this project already hit twice earlier in
+its own history: two independent implementations of the same checkout
+arithmetic (`create-payment-intent` vs `confirmBooking`) drifted apart
+the moment a new line item was added to one and not the other (see
+`computeBookingCharges`'s comment in `bookingService.ts`). A parallel
+`EventBooking` stack would be the exact same mistake at a larger
+scale — every future coupon/food/wallet/loyalty/cancellation change
+would need to be made twice, correctly, forever, or the two content
+types would silently diverge.
+
+Instead, `Show` (`apps/api/prisma/schema.prisma`) became a generic
+**"scheduled, bookable session"** — for a `Movie` OR an `Event`, never
+both, never neither, enforced by a `kind` discriminant plus a
+Postgres `CHECK` constraint (Prisma has no native nullable-XOR
+support, so this is one of the few places this project drops to raw
+SQL in a migration rather than the Prisma schema alone). Concretely:
+
+```
+Show.kind: "MOVIE" | "EVENT"
+Show.movieId: String?   (set iff kind = MOVIE)
+Show.eventId: String?   (set iff kind = EVENT)
+```
+
+Everything downstream of `Show` — `Booking`/`BookingSeat`, the Redis
+seat-hold engine, Stripe payment verification, coupons, F&B, wallet
+spend, loyalty cashback, referral bonuses, cancellation refunds, the
+admin analytics dashboard — is **unmodified, shared code**. The only
+places that had to learn about the discriminant at all were the
+handful of spots that used to assume `show.movie.title` always
+resolves (now `titleOfShow(show)`, one helper, one call site pattern)
+and the admin analytics breakdown (which now buckets into `topMovies`
+or `topEvents` depending on which id is set).
+
+`Theatre`/`Screen` are reused as-is for event venues too — a "Screen"
+is really just "a room with a seat layout," which fits a comedy club's
+stage room or a small concert hall equally well as a cinema screen.
+Renaming them to "Venue"/"Space" was considered and rejected: it would
+be a large, purely cosmetic diff across a lot of already-working code
+for zero functional gain.
+
+### What this buys for free
+
+Because a session IS a `Show`, booking a comedy night seat is
+byte-for-byte the same request/response flow as booking a movie seat —
+`GET /api/shows/:id/seatmap`, `POST /api/seats/hold`,
+`POST /api/bookings/create-payment-intent`, `POST /api/bookings/confirm`.
+The frontend's entire seat-map/checkout page
+(`apps/web/src/pages/SeatMapPage.tsx`) needed **zero changes** to
+support events — it already only ever knew about a `showId`, never a
+`movieId`. Coupons, food add-ons, wallet spend, the donation round-up,
+loyalty cashback, and the bill-split calculator all just work for an
+event booking, because they're the same code path, not a re-
+implementation that happens to look similar.
+
+### API surface
+
+`GET /api/events` / `GET /api/events/:id` / `GET /api/events/:id/sessions`
+mirror `/api/movies`'s shape almost exactly (see the API reference
+table below) — `sessions` reuses the exact same `ShowDTO` shape
+`/api/movies/:id/shows` returns, just with `eventId` set instead of
+`movieId`. Admin CRUD (`/api/admin/events`, `/api/admin/event-sessions`)
+mirrors `/api/admin/movies`/`/api/admin/shows` the same way.
+
+### What's deliberately NOT covered
+
+- **General-admission / capacity-based ticketing.** A large concert or
+  match with no assigned seats (just "200 GA tickets available") needs
+  a genuinely different concurrency primitive than per-seat Redis
+  holds — an atomic capacity decrement, not a per-seat lock. This
+  project only covers assigned-seating venues (which a "small or big"
+  event can both be — many real concert halls and theatres do assign
+  seats), and documents capacity-based GA as a distinct, bounded piece
+  of future work rather than half-building it alongside seated venues.
+- **Ratings/reviews and the waitlist ("notify me") for events.** Both
+  `Rating` and `Waitlist` are `movieId`-scoped today. Extending them to
+  also accept an `eventId` is a small, mechanical follow-up — it was
+  left out of this pass specifically to keep this round's diff to "can
+  you browse and book an event," not "every movie-only convenience
+  feature also exists for events."
+
+---
+
 ## What was deliberately cut (and why)
 
 - **Real payment gateway with an async, webhook-confirmed flow.** The
@@ -791,9 +1125,10 @@ Sample guest booking (for "Find my booking"): reference `SHOW-GUEST1`,
 email `jordan.guest@example.com`.
 
 The demo user (`demo@showtime.dev`) already has a `CONFIRMED` booking
-against a show whose `endTime` is in the past, specifically so the rating
-feature can be demoed immediately — see "Rate this movie" on **The Last
-Signal**.
+against a show whose `endTime` is in the past, specifically so the
+rating feature can be demoed immediately — see "Rate this movie" on
+whichever title the seed script resolved as the flagship movie (see
+below — it's a real title, not a fixed name).
 
 All three seeded accounts (`admin`, `demo`, `sam`) are pre-marked
 `emailVerified: true` so demo logins skip the OTP step entirely — that
@@ -801,12 +1136,26 @@ flow is still fully live for any *new* account registered through the
 app. Seed data spans ten Indian cities across twenty theatres (forty
 screens), so the home page's city filter has real breadth to demonstrate.
 
-**To get a real, ~65-title movie catalog instead of the 4 hand-seeded
-movies**, log into the admin panel and click **"Populate Popular
-Movies"** on the Movies page once (needs `OMDB_API_KEY` configured —
-see above). This is a one-click action, not part of the seed script
-itself, since it needs live network access and a valid API key that a
-CI/offline seed run can't assume it has.
+Also seeded: two demo coupons (`WELCOME10` — 10% off, `FLAT50` — ₹50
+off, max 100 uses) and a 7-item F&B menu (popcorn/nachos/drinks/a
+combo) so checkout's coupon field and food step have something real to
+try immediately. Every seeded user gets a real, unique `referralCode`
+(visible on their `/profile` page in the web app) — register a new
+account with `?ref=<their code>` in the URL to see the referral bonus
+paid to both sides on that new account's first confirmed booking. Also
+seeded: 3 events (a comedy night, a concert, a play), 2 sessions each
+— browse them at `/events`.
+
+The 4 seeded movies (Inception, 3 Idiots, Parasite, Mad Max: Fury Road)
+are themselves real data — posters, synopses, genres, and runtimes
+resolved live through OMDb during seeding (falling back to a
+placeholder only if OMDb is unreachable), not the random stock-photo
+placeholders this project used before. **To get a much larger, ~65-
+title catalog** on top of those four, log into the admin panel and
+click **"Populate Popular Movies"** on the Movies page once (needs
+`OMDB_API_KEY` configured — see above). This is a one-click action, not
+part of the seed script itself, since it needs live network access and
+a valid API key that a CI/offline seed run can't assume it has.
 
 ### Proving the concurrency handling
 

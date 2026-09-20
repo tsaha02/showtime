@@ -4,9 +4,23 @@ import { ApiError } from "../utils/ApiError";
 import { generateBookingReference } from "../utils/bookingRef";
 import { checkHoldsOwnedBy, releaseHolds } from "./seatHoldService";
 import { sendBookingTicketEmail } from "./emailService";
-import { isStripeConfigured, verifyPaymentIntent } from "./paymentService";
+import { isStripeConfigured, verifyPaymentIntent, refundPaymentIntent } from "./paymentService";
+import { applyCoupon, incrementCouponUsage } from "./couponService";
+import { computeFoodCart } from "./foodService";
+import { computeDonationAmount } from "./donationService";
+import { adjustWallet, awardReferralBonusIfEligible } from "./walletService";
+import { applyLoyaltyCashback } from "./loyaltyService";
 import { emitSeatBooked, emitSeatReleased, emitBookingConfirmed } from "../lib/socket";
 import type { BookingDTO, BookingSeatDTO, ConfirmBookingInput } from "@showtime/shared";
+
+// `Show` is generic (a session for a Movie OR an Event — see the
+// schema comment on `Event`), so every place that used to read
+// `show.movie.title` unconditionally now goes through this helper
+// instead of repeating the `movie?.title ?? event!.title` fallback at
+// each call site.
+export function titleOfShow(show: { movie: { title: string } | null; event: { title: string } | null }): string {
+  return show.movie?.title ?? show.event!.title;
+}
 
 // Shared by confirmBooking() and the create-payment-intent endpoint —
 // both need "what does this cart of seats cost, on this show, right
@@ -16,7 +30,7 @@ import type { BookingDTO, BookingSeatDTO, ConfirmBookingInput } from "@showtime/
 export async function computeSeatsPricing(showId: string, seatIds: string[]) {
   const show = await prisma.show.findUnique({
     where: { id: showId },
-    include: { prices: true, movie: true, screen: { include: { theatre: true } } },
+    include: { prices: true, movie: true, event: true, screen: { include: { theatre: true } } },
   });
   if (!show) throw ApiError.notFound("Show not found");
 
@@ -39,6 +53,55 @@ export async function computeSeatsPricing(showId: string, seatIds: string[]) {
   const totalAmount = seatsSnapshot.reduce((sum, s) => sum + s.price, 0);
 
   return { show, seatsSnapshot, totalAmount };
+}
+
+export interface BookingChargesInput {
+  showId: string;
+  seatIds: string[];
+  couponCode?: string;
+  foodItems?: { foodItemId: string; quantity: number }[];
+  useWallet?: boolean;
+  roundUpDonation?: boolean;
+  userId?: string;
+}
+
+// THE single place the checkout total is computed — seats → − coupon →
+// + food → + donation round-up → − wallet. `create-payment-intent` and
+// `confirmBooking` both call this and NOTHING ELSE to arrive at
+// `finalAmount`, specifically because this pipeline has already drifted
+// out of sync between the two call sites twice (once for food/wallet,
+// once for the donation round-up) when each endpoint re-implemented the
+// arithmetic separately — a real bug this project's own testing caught
+// both times, not a hypothetical one. If a new checkout line item is
+// ever added, it belongs HERE, not duplicated into both routes again.
+export async function computeBookingCharges(input: BookingChargesInput) {
+  const { showId, seatIds, couponCode, foodItems, useWallet, roundUpDonation, userId } = input;
+
+  const { show, seatsSnapshot, totalAmount } = await computeSeatsPricing(showId, seatIds);
+  const { coupon, discountAmount } = await applyCoupon(totalAmount, couponCode);
+  const { lines: foodLines, foodTotal } = await computeFoodCart(foodItems);
+  const donationAmount = computeDonationAmount(totalAmount - discountAmount + foodTotal, roundUpDonation);
+  const preWalletTotal = totalAmount - discountAmount + foodTotal + donationAmount;
+
+  let walletAmountUsed = 0;
+  if (useWallet && userId) {
+    const account = await prisma.user.findUnique({ where: { id: userId }, select: { walletBalance: true } });
+    walletAmountUsed = Math.min(account?.walletBalance ?? 0, preWalletTotal);
+  }
+  const finalAmount = preWalletTotal - walletAmountUsed;
+
+  return {
+    show,
+    seatsSnapshot,
+    totalAmount,
+    coupon,
+    discountAmount,
+    foodLines,
+    foodTotal,
+    donationAmount,
+    walletAmountUsed,
+    finalAmount,
+  };
 }
 
 // ============================================================================
@@ -89,7 +152,17 @@ export async function confirmBooking(
   input: ConfirmBookingInput,
   ctx: ConfirmContext,
 ): Promise<BookingDTO> {
-  const { showId, seatIds, guestDetails, simulatePaymentFailure, paymentIntentId } = input;
+  const {
+    showId,
+    seatIds,
+    guestDetails,
+    simulatePaymentFailure,
+    paymentIntentId,
+    couponCode,
+    foodItems,
+    useWallet,
+    roundUpDonation,
+  } = input;
 
   // A booking belongs to EITHER a logged-in user OR a guest, never both,
   // never neither. userId comes from the auth cookie (server-trusted);
@@ -100,7 +173,13 @@ export async function confirmBooking(
     throw ApiError.badRequest("Guest details are required when not logged in");
   }
 
-  const { show, seatsSnapshot, totalAmount } = await computeSeatsPricing(showId, seatIds);
+  // Re-validated from scratch here — never trusted from an earlier
+  // preview-coupon/create-payment-intent response or from whatever
+  // amount the client claims — see computeBookingCharges's own comment
+  // for why this MUST be the one function both endpoints call, not a
+  // second copy of the same arithmetic.
+  const { show, seatsSnapshot, totalAmount, coupon, discountAmount, foodLines, foodTotal, donationAmount, walletAmountUsed, finalAmount } =
+    await computeBookingCharges({ showId, seatIds, couponCode, foodItems, useWallet, roundUpDonation, userId: ctx.userId });
 
   // --- Layer 1: Redis hold re-validation ---
   // Catches the common, expected case: the hold TTL ran out while the
@@ -115,12 +194,17 @@ export async function confirmBooking(
   }
 
   // --- Payment ---
-  // Two modes, chosen by whether STRIPE_SECRET_KEY is configured (see
-  // paymentService.ts) — never both, and switching between them requires
-  // no change anywhere else in this function or the transaction below,
+  // Three modes: fully covered by wallet (nothing to charge at all —
+  // skip Stripe/mock entirely), Stripe (STRIPE_SECRET_KEY configured),
+  // or the mocked fallback. Switching between the latter two requires no
+  // change anywhere else in this function or the transaction below,
   // since either way what leaves this block is just "payment is good,
   // proceed" or a thrown 402.
-  if (isStripeConfigured()) {
+  if (finalAmount === 0) {
+    // Nothing to verify — the wallet already covers the whole order.
+    // Stripe can't even create a ₹0 PaymentIntent, so this has to be a
+    // distinct branch, not just "verify a zero-amount charge."
+  } else if (isStripeConfigured()) {
     if (!paymentIntentId) throw ApiError.badRequest("paymentIntentId is required");
     // Re-fetches the PaymentIntent from Stripe itself rather than
     // trusting the client's word that payment succeeded, and checks its
@@ -130,7 +214,7 @@ export async function confirmBooking(
       showId,
       seatIds,
       sessionId: ctx.sessionId,
-      amountRupees: totalAmount,
+      amountRupees: finalAmount,
     });
     // A PaymentIntent can only ever be attached to one booking — see the
     // comment on Booking.paymentIntentId. Checked explicitly here (rather
@@ -172,10 +256,46 @@ export async function confirmBooking(
           guestEmail: guestDetails?.guestEmail ?? null,
           guestPhone: guestDetails?.guestPhone ?? null,
           totalAmount,
+          couponCode: coupon?.code ?? null,
+          discountAmount,
+          foodTotal,
+          walletAmountUsed,
+          donationAmount,
           seatsSnapshot: seatsSnapshot as unknown as Prisma.InputJsonValue,
-          paymentIntentId: paymentIntentId ?? null,
+          paymentIntentId: finalAmount === 0 ? null : (paymentIntentId ?? null),
         },
       });
+
+      if (coupon) await incrementCouponUsage(tx, coupon.id);
+
+      if (foodLines.length > 0) {
+        await tx.bookingFoodItem.createMany({
+          data: foodLines.map((f) => ({
+            bookingId: created.id,
+            foodItemId: f.foodItemId,
+            name: f.name,
+            price: f.price,
+            quantity: f.quantity,
+          })),
+        });
+      }
+
+      if (walletAmountUsed > 0 && ctx.userId) {
+        await adjustWallet(tx, ctx.userId, -walletAmountUsed, "SPENT_AT_CHECKOUT", created.id);
+      }
+
+      // Referral bonus pays out on a referred user's FIRST confirmed
+      // booking — checked here, inside the transaction, using the
+      // booking just created as the marker (if this is the only
+      // CONFIRMED booking this user has, this is their first).
+      if (ctx.userId) {
+        const confirmedCount = await tx.booking.count({ where: { userId: ctx.userId, status: "CONFIRMED" } });
+        if (confirmedCount === 1) await awardReferralBonusIfEligible(tx, ctx.userId);
+        // Loyalty cashback is a percentage of what was actually paid out
+        // of pocket (finalAmount) — not the pre-discount seat price, not
+        // anything already covered by wallet.
+        await applyLoyaltyCashback(tx, ctx.userId, created.id, finalAmount);
+      }
 
       // createMany fails as a single statement if ANY row violates the
       // (showId, seatId) unique constraint — Postgres won't insert 3 of
@@ -227,12 +347,18 @@ export async function confirmBooking(
     reference,
     status: "CONFIRMED",
     showId,
-    movieTitle: show.movie.title,
+    movieTitle: titleOfShow(show),
     theatreName: show.screen.theatre.name,
     screenName: show.screen.name,
     showStartTime: show.startTime.toISOString(),
     seats: seatsSnapshot,
     totalAmount,
+    couponCode: coupon?.code ?? null,
+    discountAmount,
+    foodItems: foodLines.map((f) => ({ name: f.name, price: f.price, quantity: f.quantity })),
+    foodTotal,
+    walletAmountUsed,
+    donationAmount,
     guestName: guestDetails?.guestName ?? null,
     guestEmail: guestDetails?.guestEmail ?? null,
     createdAt: new Date().toISOString(),
@@ -267,16 +393,52 @@ export async function cancelBooking(bookingId: string, ctx: { userId: string }):
   if (booking.status !== "CONFIRMED") throw ApiError.badRequest("Only confirmed bookings can be cancelled");
 
   const seatIds = booking.bookingSeats.map((s) => s.seatId);
+  // What was actually paid out-of-pocket (cash/card), as opposed to the
+  // wallet credit already spent — the two are refunded through different
+  // paths below. Includes `donationAmount`: this app has no partial/
+  // line-item refund mechanism (food isn't carved out of a refund
+  // either), so cancelling refunds the whole charge, the round-up
+  // donation included — a real product might choose to keep the
+  // donation non-refundable, but that needs Stripe's partial-refund
+  // amount parameter, which nothing else here uses yet.
+  const cashPaid =
+    booking.totalAmount - booking.discountAmount + booking.foodTotal + booking.donationAmount - booking.walletAmountUsed;
+
+  // Resolved before the transaction opens — refunding is a network call
+  // to Stripe, and a DB transaction shouldn't sit open across one. If a
+  // real charge exists, try to refund it there first; on any failure
+  // (or if there was never a real charge — a mocked payment, since
+  // Stripe wasn't configured), the cash portion is refunded as a wallet
+  // credit instead.
+  let cashRefundToWallet = 0;
+  if (cashPaid > 0) {
+    if (booking.paymentIntentId) {
+      try {
+        await refundPaymentIntent(booking.paymentIntentId);
+      } catch {
+        cashRefundToWallet = cashPaid;
+      }
+    } else {
+      cashRefundToWallet = cashPaid;
+    }
+  }
 
   // Deleting the BookingSeat rows is what frees the seats — see the
   // comment on the BookingSeat model in schema.prisma for why this
   // (rather than a status column + partial index) is the seat-release
   // mechanism. The Booking row itself, with its immutable seatsSnapshot,
   // is kept as CANCELLED for history.
-  await prisma.$transaction([
-    prisma.bookingSeat.deleteMany({ where: { bookingId } }),
-    prisma.booking.update({ where: { id: bookingId }, data: { status: "CANCELLED" } }),
-  ]);
+  await prisma.$transaction(async (tx) => {
+    await tx.bookingSeat.deleteMany({ where: { bookingId } });
+    await tx.booking.update({ where: { id: bookingId }, data: { status: "CANCELLED" } });
+
+    if (booking.walletAmountUsed > 0) {
+      await adjustWallet(tx, ctx.userId, booking.walletAmountUsed, "CANCELLATION_REFUND", bookingId);
+    }
+    if (cashRefundToWallet > 0) {
+      await adjustWallet(tx, ctx.userId, cashRefundToWallet, "CANCELLATION_REFUND", bookingId);
+    }
+  });
 
   for (const seatId of seatIds) {
     emitSeatReleased({ showId: booking.showId, seatId });
@@ -289,23 +451,40 @@ export function bookingToDTO(booking: {
   status: string;
   showId: string;
   totalAmount: number;
+  couponCode: string | null;
+  discountAmount: number;
+  foodTotal: number;
+  walletAmountUsed: number;
+  donationAmount: number;
   seatsSnapshot: Prisma.JsonValue;
+  foodItems: { name: string; price: number; quantity: number }[];
   guestName: string | null;
   guestEmail: string | null;
   createdAt: Date;
-  show: { startTime: Date; movie: { title: string }; screen: { name: string; theatre: { name: string } } };
+  show: {
+    startTime: Date;
+    movie: { title: string } | null;
+    event: { title: string } | null;
+    screen: { name: string; theatre: { name: string } };
+  };
 }): BookingDTO {
   return {
     id: booking.id,
     reference: booking.reference,
     status: booking.status as BookingDTO["status"],
     showId: booking.showId,
-    movieTitle: booking.show.movie.title,
+    movieTitle: titleOfShow(booking.show),
     theatreName: booking.show.screen.theatre.name,
     screenName: booking.show.screen.name,
     showStartTime: booking.show.startTime.toISOString(),
     seats: booking.seatsSnapshot as unknown as BookingDTO["seats"],
     totalAmount: booking.totalAmount,
+    couponCode: booking.couponCode,
+    discountAmount: booking.discountAmount,
+    foodItems: booking.foodItems.map((f) => ({ name: f.name, price: f.price, quantity: f.quantity })),
+    foodTotal: booking.foodTotal,
+    walletAmountUsed: booking.walletAmountUsed,
+    donationAmount: booking.donationAmount,
     guestName: booking.guestName,
     guestEmail: booking.guestEmail,
     createdAt: booking.createdAt.toISOString(),

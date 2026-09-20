@@ -1,6 +1,8 @@
+import { forwardRef } from "react";
 import { Box, Card, CardContent, Stack, Typography, Divider } from "@mui/material";
 import { QRCodeSVG } from "qrcode.react";
 import type { BookingDTO } from "@showtime/shared";
+import { BrandLogo } from "./BrandLogo";
 
 interface TicketQRCodeProps {
   booking: BookingDTO;
@@ -24,11 +26,15 @@ function buildTicketPayload(booking: BookingDTO): string {
   ].join("\n");
 }
 
-export function TicketQRCode({ booking }: TicketQRCodeProps) {
+export const TicketQRCode = forwardRef<HTMLDivElement, TicketQRCodeProps>(function TicketQRCode(
+  { booking },
+  ref,
+) {
   const payload = buildTicketPayload(booking);
 
   return (
     <Card
+      ref={ref}
       variant="outlined"
       sx={{
         maxWidth: 320,
@@ -42,6 +48,7 @@ export function TicketQRCode({ booking }: TicketQRCodeProps) {
     >
       <CardContent sx={{ width: "100%", display: "flex", alignItems: "center" }}>
         <Stack spacing={1.5} alignItems="center" sx={{ width: "100%" }}>
+          <BrandLogo size={20} sx={{ color: "text.primary" }} />
           <Typography variant="subtitle1" fontWeight={600} textAlign="center">
             {booking.movieTitle}
           </Typography>
@@ -61,8 +68,18 @@ export function TicketQRCode({ booking }: TicketQRCodeProps) {
             {booking.seats.map((s) => s.label).join(", ")} ·{" "}
             {new Date(booking.showStartTime).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
           </Typography>
+          {booking.foodItems.length > 0 && (
+            <Typography variant="caption" color="text.secondary" textAlign="center">
+              {booking.foodItems.map((f) => `${f.name} x${f.quantity}`).join(", ")}
+            </Typography>
+          )}
+          {booking.walletAmountUsed > 0 && (
+            <Typography variant="caption" color="success.main" textAlign="center">
+              Paid from wallet: ₹{booking.walletAmountUsed}
+            </Typography>
+          )}
         </Stack>
       </CardContent>
     </Card>
   );
-}
+});

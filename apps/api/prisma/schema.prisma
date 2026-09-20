@@ -42,22 +42,72 @@ enum BookingStatus {
 }
 
 model User {
-  id           String    @id @default(uuid())
-  name         String
-  email        String    @unique
-  passwordHash String
-  role         UserRole  @default(CUSTOMER)
+  id                   String   @id @default(uuid())
+  name                 String
+  email                String   @unique
+  passwordHash         String
+  role                 UserRole @default(CUSTOMER)
   // Set via a 6-digit OTP emailed at registration (see authService.ts /
   // emailService.ts). Deliberately does NOT gate login, booking, or
   // rating in this implementation — it's informational (shown in the
   // UI, resend/verify endpoints exist) rather than a hard access
   // control, to keep the verification feature additive and isolated
   // from the booking transaction's already-carefully-scoped logic.
-  emailVerified Boolean  @default(false)
-  createdAt    DateTime  @default(now())
+  emailVerified        Boolean  @default(false)
+  // Denormalized running total, not derived by summing WalletTransaction
+  // on every read — same "cache the balance, keep an immutable ledger
+  // for how it got there" pattern real payment systems use. Every write
+  // to this field happens in the same transaction as the
+  // WalletTransaction row that explains it, so the two can never drift.
+  walletBalance        Int      @default(0)
+  // A short, unique, shareable code (see utils/referralCode.ts) — set at
+  // registration, immutable after. `referredById` is set (once, at
+  // registration only) if this user signed up via someone else's code.
+  referralCode         String   @unique
+  referredById         String?
+  // Set the moment the referral bonus is actually paid out (this
+  // referred user's first CONFIRMED booking) — guards against paying it
+  // more than once if, say, a webhook or retry path ever ran this logic
+  // twice for the same user.
+  referralBonusAwarded Boolean  @default(false)
+  createdAt            DateTime @default(now())
 
-  bookings Booking[]
-  ratings  Rating[]
+  referredBy         User?               @relation("Referrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals          User[]              @relation("Referrals")
+  bookings           Booking[]
+  ratings            Rating[]
+  ratingVotes        RatingVote[]
+  walletTransactions WalletTransaction[]
+  giftCardsPurchased GiftCard[]          @relation("GiftCardsPurchased")
+  giftCardsRedeemed  GiftCard[]          @relation("GiftCardsRedeemed")
+}
+
+// An immutable ledger of every wallet change — refunds (cancellation
+// on a mocked/non-Stripe payment), referral bonuses, and spending a
+// wallet balance at checkout are all rows here, never just a mutation of
+// `User.walletBalance` on its own. This is what makes a user's balance
+// auditable/explainable ("why do I have ₹150?") rather than a single
+// opaque number.
+enum WalletReason {
+  CANCELLATION_REFUND
+  REFERRAL_BONUS
+  SPENT_AT_CHECKOUT
+  ADMIN_ADJUSTMENT
+  GIFT_CARD_REDEEMED
+  LOYALTY_CASHBACK
+}
+
+model WalletTransaction {
+  id        String       @id @default(uuid())
+  userId    String
+  amount    Int // positive = credit, negative = debit
+  reason    WalletReason
+  bookingId String?
+  createdAt DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Movie {
@@ -79,8 +129,54 @@ model Movie {
   externalId   String?  @unique
   createdAt    DateTime @default(now())
 
-  shows   Show[]
-  ratings Rating[]
+  shows     Show[]
+  ratings   Rating[]
+  waitlists Waitlist[]
+}
+
+enum EventCategory {
+  CONCERT
+  COMEDY
+  SPORTS
+  THEATRE_PLAY
+  WORKSHOP
+  OTHER
+}
+
+// A second bookable content type, alongside Movie — "small or big"
+// events (a comedy night, a play, a concert) rather than just films.
+// Deliberately reuses almost everything the movie-booking engine
+// already has: `Show` below becomes a generic "scheduled, bookable
+// session" for EITHER a Movie or an Event (see its `kind` discriminant),
+// so Booking/BookingSeat, the Redis seat-hold engine, payment
+// verification, coupons/food/wallet/loyalty/referral, and cancellation
+// refunds are ALL shared code, not a second copy of any of it — the
+// lesson from this project's own pricing-pipeline bug (see
+// bookingService.ts's computeBookingCharges comment) is exactly why
+// this wasn't built as a parallel EventBooking table.
+//
+// `Theatre`/`Screen` are reused as-is for event venues/spaces too (a
+// "Screen" is really just "a room with a seat layout," which a comedy
+// club's stage room or a small concert hall fits equally well) —
+// renaming them to "Venue"/"Space" would be a large, purely cosmetic
+// diff across a lot of already-working code for no functional gain.
+//
+// What's explicitly NOT covered here (see README's "deliberately cut"
+// section): general-admission/capacity-based ticketing for large venues
+// with no assigned seats (a genuinely different concurrency primitive
+// than per-seat Redis holds), and Ratings/Waitlist support for events
+// (both are Movie-specific today; extending them is a separate,
+// bounded follow-up, not bundled shallowly into this pass).
+model Event {
+  id           String        @id @default(uuid())
+  title        String
+  description  String
+  category     EventCategory
+  durationMins Int
+  posterUrl    String?
+  createdAt    DateTime      @default(now())
+
+  shows Show[]
 }
 
 model Theatre {
@@ -140,12 +236,16 @@ model SeatLayout {
 // `label` is what every other part of the system (bookings, receipts)
 // displays and refers to.
 model Seat {
-  id       String       @id @default(uuid())
-  layoutId String
-  row      Int
-  col      Int
-  label    String
-  category SeatCategory
+  id                   String       @id @default(uuid())
+  layoutId             String
+  row                  Int
+  col                  Int
+  label                String
+  category             SeatCategory
+  // Purely informational to the booking flow (never affects price or the
+  // hold/booking concurrency logic) — surfaced on the seat map as a badge
+  // and filterable, same as BookMyShow's accessible-seating indicator.
+  wheelchairAccessible Boolean      @default(false)
 
   layout       SeatLayout    @relation(fields: [layoutId], references: [id], onDelete: Cascade)
   bookingSeats BookingSeat[]
@@ -162,20 +262,46 @@ model Seat {
 // themselves. `Show` rows are therefore always admin-curated (directly,
 // or via the bulk "Auto-schedule shows" admin action, which is a fast
 // data-entry convenience, not a live feed of any kind).
+enum ShowKind {
+  MOVIE
+  EVENT
+}
+
+// A scheduled, bookable session — for a Movie OR an Event, never both,
+// never neither (`kind` says which; enforced by a CHECK constraint in
+// the migration, since Prisma has no native XOR-nullable-column
+// support). Kept as ONE table rather than a parallel EventSession table
+// specifically so Booking.showId, the seat-hold engine, and the whole
+// payment/coupon/food/wallet pipeline never have to learn a second
+// shape — see the comment on `Event` above for the full reasoning.
 model Show {
   id        String   @id @default(uuid())
-  movieId   String
+  kind      ShowKind @default(MOVIE)
+  movieId   String?
+  eventId   String?
   screenId  String
   startTime DateTime
   endTime   DateTime
+  // Free-text, not enums — real formats/languages vary too much across
+  // markets to enumerate ("4DX", "ScreenX", regional language names) and
+  // an admin should never be blocked from entering one this schema
+  // didn't anticipate. Defaulted so existing rows/tests aren't broken by
+  // this addition. Largely unused for `kind: EVENT` sessions (format
+  // doesn't mean much for a comedy show) but kept as one shared column
+  // rather than nulling it out per-kind — an empty/default string is a
+  // fine "not applicable" for the rows where it doesn't apply.
+  format    String   @default("2D")
+  language  String   @default("English")
   createdAt DateTime @default(now())
 
-  movie    Movie           @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  movie    Movie?          @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  event    Event?          @relation(fields: [eventId], references: [id], onDelete: Cascade)
   screen   Screen          @relation(fields: [screenId], references: [id], onDelete: Cascade)
   prices   ShowSeatPrice[]
   bookings Booking[]
 
   @@index([movieId])
+  @@index([eventId])
   @@index([screenId])
 }
 
@@ -194,31 +320,58 @@ model ShowSeatPrice {
 }
 
 model Booking {
-  id          String        @id @default(uuid())
-  reference   String        @unique
-  status      BookingStatus @default(CONFIRMED)
-  showId      String
-  userId      String?
-  guestName   String?
-  guestEmail  String?
-  guestPhone  String?
-  totalAmount Int
+  id               String        @id @default(uuid())
+  reference        String        @unique
+  status           BookingStatus @default(CONFIRMED)
+  showId           String
+  userId           String?
+  guestName        String?
+  guestEmail       String?
+  guestPhone       String?
+  totalAmount      Int
   // Immutable snapshot of what was booked (seat label/category/price at
   // booking time), kept even after cancellation deletes the live
   // BookingSeat rows below. This is what booking-history/receipt views
   // read from, so a cancellation never rewrites booking history.
-  seatsSnapshot Json
+  seatsSnapshot    Json
   // Stripe PaymentIntent id, when a real (test-mode) Stripe payment was
   // used to confirm this booking — null for bookings confirmed via the
   // mocked payment fallback (see paymentService.ts). Unique so the same
   // PaymentIntent can never be attached to more than one booking, which
   // is what stops a captured payment from being replayed to create
   // multiple bookings.
-  paymentIntentId String? @unique
-  createdAt   DateTime      @default(now())
+  paymentIntentId  String?       @unique
+  // Denormalized (not just derived from a Coupon join) because a coupon's
+  // discount value can change or the coupon can be deleted later — a
+  // past booking's receipt must keep showing what was actually charged,
+  // same reasoning as `seatsSnapshot` above.
+  couponCode       String?
+  discountAmount   Int           @default(0)
+  // F&B add-ons total (see BookingFoodItem) — kept separate from
+  // `totalAmount` (seats only) rather than folded in, so a receipt can
+  // always show "seats: ₹X, food: ₹Y" as two real line items instead of
+  // one number that quietly means different things depending on whether
+  // food was ordered.
+  foodTotal        Int           @default(0)
+  // How much of this booking's final charge was covered by the user's
+  // ShowTime wallet balance rather than an actual payment — deducted
+  // from `User.walletBalance` atomically inside the same transaction
+  // that creates this row (see bookingService.ts).
+  walletAmountUsed Int           @default(0)
+  // Optional "round up and donate the difference" at checkout (see
+  // donationService.ts) — an extra amount ADDED to what's charged, never
+  // deducted from the seats/food total. Purely a demo feature: no real
+  // charity integration exists, and the checkout UI says so; the only
+  // real thing about it is that it's charged through the same test-mode
+  // Stripe flow as everything else, so it never moves real money either
+  // way. Kept as its own field (like `foodTotal`) so a receipt can show
+  // it as its own line item.
+  donationAmount   Int           @default(0)
+  createdAt        DateTime      @default(now())
 
-  show         Show          @relation(fields: [showId], references: [id], onDelete: Cascade)
-  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  show         Show              @relation(fields: [showId], references: [id], onDelete: Cascade)
+  user         User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  foodItems    BookingFoodItem[]
   bookingSeats BookingSeat[]
 
   @@index([userId])
@@ -257,10 +410,147 @@ model Rating {
   userId    String
   stars     Int
   comment   String?
+  // Self-declared by the reviewer at write time — purely a display hint
+  // (the frontend blurs/collapses the comment behind a "Show spoiler"
+  // toggle), not something the server can verify, same trust boundary as
+  // any other free-text field a user writes.
+  isSpoiler Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  movie Movie @relation(fields: [movieId], references: [id], onDelete: Cascade)
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  movie Movie        @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  user  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  votes RatingVote[]
 
   @@unique([movieId, userId])
+}
+
+// "Was this review helpful?" — one vote per user per rating (re-voting
+// updates rather than duplicates, via the unique constraint below and an
+// upsert in ratingService.ts). A user can vote on their own review too;
+// not worth the extra check for what a review's helpfulness signal is
+// used for here (sorting/display only, not moderation).
+model RatingVote {
+  id        String   @id @default(uuid())
+  ratingId  String
+  userId    String
+  helpful   Boolean
+  createdAt DateTime @default(now())
+
+  rating Rating @relation(fields: [ratingId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([ratingId, userId])
+}
+
+enum CouponType {
+  PERCENT
+  FLAT
+}
+
+// Admin-created discount codes, applied at the create-payment-intent /
+// confirm step (see bookingService.ts). Validity (active, not expired,
+// under its use cap) is always re-checked server-side at the moment a
+// booking is confirmed — never trusted from an earlier "this code looked
+// valid" response, for the same reason seat holds are re-validated right
+// before the booking transaction rather than only when first selected.
+model Coupon {
+  id        String     @id @default(uuid())
+  code      String     @unique
+  type      CouponType
+  value     Int // percent (1-100) or a flat rupee amount, per `type`
+  maxUses   Int? // null = unlimited
+  usedCount Int        @default(0)
+  active    Boolean    @default(true)
+  expiresAt DateTime?
+  createdAt DateTime   @default(now())
+}
+
+// "Email me when this movie has showtimes" — for a movie with no
+// upcoming Show yet (an unreleased title, or one an admin hasn't
+// scheduled). Deliberately scoped to "notify when a show is FIRST
+// scheduled for this movie," not "notify when a specific sold-out show
+// frees a seat" (a materially harder problem — tracking seat-level
+// occupancy transitions in real time — left as a documented future
+// enhancement rather than half-built here).
+model Waitlist {
+  id         String    @id @default(uuid())
+  movieId    String
+  email      String
+  notifiedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  movie Movie @relation(fields: [movieId], references: [id], onDelete: Cascade)
+
+  @@unique([movieId, email])
+}
+
+enum FoodCategory {
+  SNACK
+  DRINK
+  COMBO
+}
+
+// Admin-managed F&B catalog, deliberately global (not per-theatre or
+// per-show) — real multi-theatre F&B menus vary by location, but
+// modeling that is a scope increase (theatre-scoped inventory,
+// availability) this project doesn't need to demonstrate anything new
+// by taking on.
+model FoodItem {
+  id          String       @id @default(uuid())
+  name        String
+  description String?
+  price       Int
+  category    FoodCategory
+  imageUrl    String?
+  active      Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+
+  bookingFoodItems BookingFoodItem[]
+}
+
+// One row per food item in a booking's cart, same "snapshot price at
+// time of purchase" pattern as BookingSeat — a later price change to the
+// FoodItem must never rewrite what a past booking shows it charged.
+model BookingFoodItem {
+  id         String @id @default(uuid())
+  bookingId  String
+  foodItemId String
+  name       String
+  price      Int
+  quantity   Int
+
+  booking  Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  foodItem FoodItem @relation(fields: [foodItemId], references: [id], onDelete: Cascade)
+}
+
+// A purchasable, giftable credit code — paid for like a booking (real
+// Stripe test-mode PaymentIntent, or the mocked fallback), then
+// redeemed by whoever holds the code. Redemption is deliberately
+// all-or-nothing: the full `value` is credited straight into the
+// redeemer's ShowTime wallet in one shot (via the same `adjustWallet`
+// every other wallet change goes through), rather than this model
+// tracking its own partial remaining balance — the wallet already
+// supports spending a balance across many future bookings, so a second
+// "partial balance" concept here would just be the same feature built
+// twice. `purchasedByUserId` is nullable (a guest can buy a gift card
+// for someone else without an account); `redeemedByUserId` is NOT
+// nullable-until-redeemed by accident — it's null until redemption,
+// then set once and never again (enforced by the `redeemed` flag, not
+// by re-checking the field itself, so the intent is explicit).
+model GiftCard {
+  id                String    @id @default(uuid())
+  code              String    @unique
+  value             Int
+  purchasedByEmail  String
+  purchasedByUserId String?
+  recipientEmail    String
+  message           String?
+  paymentIntentId   String?   @unique
+  redeemed          Boolean   @default(false)
+  redeemedByUserId  String?
+  redeemedAt        DateTime?
+  createdAt         DateTime  @default(now())
+
+  purchasedByUser User? @relation("GiftCardsPurchased", fields: [purchasedByUserId], references: [id], onDelete: SetNull)
+  redeemedByUser  User? @relation("GiftCardsRedeemed", fields: [redeemedByUserId], references: [id], onDelete: SetNull)
 }

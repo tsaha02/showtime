@@ -1,13 +1,15 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Box, TextField, Button, Typography, Paper, Alert, Stack, Card, CardContent, Chip, Divider } from "@mui/material";
 import { useFindBookingMutation } from "../store/api";
 import { getErrorMessage } from "../lib/apiError";
 import { TicketQRCode } from "../components/TicketQRCode";
+import { downloadTicketPdf } from "../lib/downloadTicketPdf";
 
 export function FindBookingPage() {
   const [reference, setReference] = useState("");
   const [email, setEmail] = useState("");
   const [findBooking, { data: booking, isLoading, error, isSuccess }] = useFindBookingMutation();
+  const ticketRef = useRef<HTMLDivElement>(null);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -79,7 +81,18 @@ export function FindBookingPage() {
               </Typography>
             </CardContent>
           </Card>
-          {booking.status === "CONFIRMED" && <TicketQRCode booking={booking} />}
+          {booking.status === "CONFIRMED" && (
+            <Stack spacing={1} alignItems="center">
+              <TicketQRCode ref={ticketRef} booking={booking} />
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => downloadTicketPdf(ticketRef, `ticket-${booking.reference}.pdf`)}
+              >
+                Download PDF
+              </Button>
+            </Stack>
+          )}
         </Stack>
       )}
     </Box>

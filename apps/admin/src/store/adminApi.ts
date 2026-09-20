@@ -9,6 +9,13 @@ import type {
   SeatCategory,
   ExternalMovieSearchResultDTO,
   DiscoveredTheatreDTO,
+  CouponDTO,
+  CouponInput,
+  FoodItemDTO,
+  FoodItemInput,
+  AnalyticsOverviewDTO,
+  EventDTO,
+  EventInput,
 } from "@showtime/shared";
 
 // VITE_API_URL already includes the /admin prefix (see .env) — every
@@ -71,6 +78,18 @@ export interface SeatInput {
   col: number;
   label: string;
   category: SeatCategory;
+  wheelchairAccessible?: boolean;
+}
+
+export interface GiftCardDTO {
+  id: string;
+  code: string;
+  value: number;
+  purchasedByEmail: string;
+  recipientEmail: string | null;
+  redeemed: boolean;
+  redeemedAt: string | null;
+  createdAt: string;
 }
 
 export interface ShowInput {
@@ -80,10 +99,44 @@ export interface ShowInput {
   prices: { category: SeatCategory; price: number }[];
 }
 
+export interface EventSessionWithDetails {
+  id: string;
+  eventId: string;
+  screenId: string;
+  startTime: string;
+  endTime: string;
+  format: string;
+  language: string;
+  event: EventDTO;
+  screen: ScreenDTO & { theatre: TheatreDTO };
+  prices: { id: string; category: SeatCategory; price: number }[];
+}
+
+export interface EventSessionInput {
+  eventId: string;
+  screenId: string;
+  startTime: string;
+  format?: string;
+  language?: string;
+  prices: { category: SeatCategory; price: number }[];
+}
+
 export const adminApi = createApi({
   reducerPath: "adminApi",
   baseQuery: fetchBaseQuery({ baseUrl, credentials: "include" }),
-  tagTypes: ["Movie", "Theatre", "Layout", "Show", "Booking", "Rating", "Auth"],
+  tagTypes: [
+    "Movie",
+    "Theatre",
+    "Layout",
+    "Show",
+    "Booking",
+    "Rating",
+    "Coupon",
+    "FoodItem",
+    "Auth",
+    "Event",
+    "EventSession",
+  ],
   endpoints: (builder) => ({
     // --- Auth ---
     login: builder.mutation<{ user: AuthUserDTO }, { email: string; password: string }>({
@@ -227,6 +280,52 @@ export const adminApi = createApi({
       invalidatesTags: [{ type: "Show", id: "LIST" }],
     }),
 
+    // --- Events ---
+    getEvents: builder.query<EventDTO[], void>({
+      query: () => "events",
+      transformResponse: (res: { events: EventDTO[] }) => res.events,
+      providesTags: (result) =>
+        result
+          ? [...result.map((e) => ({ type: "Event" as const, id: e.id })), { type: "Event" as const, id: "LIST" }]
+          : [{ type: "Event" as const, id: "LIST" }],
+    }),
+    createEvent: builder.mutation<EventDTO, EventInput>({
+      query: (body) => ({ url: "events", method: "POST", body }),
+      transformResponse: (res: { event: EventDTO }) => res.event,
+      invalidatesTags: [{ type: "Event", id: "LIST" }],
+    }),
+    updateEvent: builder.mutation<EventDTO, { id: string; body: EventInput }>({
+      query: ({ id, body }) => ({ url: `events/${id}`, method: "PUT", body }),
+      transformResponse: (res: { event: EventDTO }) => res.event,
+      invalidatesTags: (_r, _e, { id }) => [{ type: "Event", id }, { type: "Event", id: "LIST" }],
+    }),
+    deleteEvent: builder.mutation<void, string>({
+      query: (id) => ({ url: `events/${id}`, method: "DELETE" }),
+      invalidatesTags: [{ type: "Event", id: "LIST" }],
+    }),
+
+    // --- Event sessions ---
+    getEventSessions: builder.query<EventSessionWithDetails[], void>({
+      query: () => "event-sessions",
+      transformResponse: (res: { sessions: EventSessionWithDetails[] }) => res.sessions,
+      providesTags: (result) =>
+        result
+          ? [
+              ...result.map((s) => ({ type: "EventSession" as const, id: s.id })),
+              { type: "EventSession" as const, id: "LIST" },
+            ]
+          : [{ type: "EventSession" as const, id: "LIST" }],
+    }),
+    createEventSession: builder.mutation<EventSessionWithDetails, EventSessionInput>({
+      query: (body) => ({ url: "event-sessions", method: "POST", body }),
+      transformResponse: (res: { session: EventSessionWithDetails }) => res.session,
+      invalidatesTags: [{ type: "EventSession", id: "LIST" }],
+    }),
+    deleteEventSession: builder.mutation<void, string>({
+      query: (id) => ({ url: `event-sessions/${id}`, method: "DELETE" }),
+      invalidatesTags: [{ type: "EventSession", id: "LIST" }],
+    }),
+
     // --- Bookings ---
     getBookings: builder.query<BookingWithEmail[], { reference?: string; email?: string; showId?: string }>({
       query: (params) => ({ url: "bookings", params }),
@@ -246,6 +345,65 @@ export const adminApi = createApi({
     deleteRating: builder.mutation<void, string>({
       query: (id) => ({ url: `ratings/${id}`, method: "DELETE" }),
       invalidatesTags: [{ type: "Rating", id: "LIST" }],
+    }),
+
+    // --- Coupons ---
+    getCoupons: builder.query<CouponDTO[], void>({
+      query: () => "coupons",
+      transformResponse: (res: { coupons: CouponDTO[] }) => res.coupons,
+      providesTags: (result) =>
+        result
+          ? [...result.map((c) => ({ type: "Coupon" as const, id: c.id })), { type: "Coupon" as const, id: "LIST" }]
+          : [{ type: "Coupon" as const, id: "LIST" }],
+    }),
+    createCoupon: builder.mutation<CouponDTO, CouponInput>({
+      query: (body) => ({ url: "coupons", method: "POST", body }),
+      transformResponse: (res: { coupon: CouponDTO }) => res.coupon,
+      invalidatesTags: [{ type: "Coupon", id: "LIST" }],
+    }),
+    updateCoupon: builder.mutation<CouponDTO, { id: string; body: CouponInput }>({
+      query: ({ id, body }) => ({ url: `coupons/${id}`, method: "PUT", body }),
+      transformResponse: (res: { coupon: CouponDTO }) => res.coupon,
+      invalidatesTags: (_r, _e, { id }) => [{ type: "Coupon", id }, { type: "Coupon", id: "LIST" }],
+    }),
+    deleteCoupon: builder.mutation<void, string>({
+      query: (id) => ({ url: `coupons/${id}`, method: "DELETE" }),
+      invalidatesTags: [{ type: "Coupon", id: "LIST" }],
+    }),
+
+    // --- Food items ---
+    getFoodItems: builder.query<FoodItemDTO[], void>({
+      query: () => "food-items",
+      transformResponse: (res: { foodItems: FoodItemDTO[] }) => res.foodItems,
+      providesTags: (result) =>
+        result
+          ? [...result.map((f) => ({ type: "FoodItem" as const, id: f.id })), { type: "FoodItem" as const, id: "LIST" }]
+          : [{ type: "FoodItem" as const, id: "LIST" }],
+    }),
+    createFoodItem: builder.mutation<FoodItemDTO, FoodItemInput>({
+      query: (body) => ({ url: "food-items", method: "POST", body }),
+      transformResponse: (res: { foodItem: FoodItemDTO }) => res.foodItem,
+      invalidatesTags: [{ type: "FoodItem", id: "LIST" }],
+    }),
+    updateFoodItem: builder.mutation<FoodItemDTO, { id: string; body: FoodItemInput }>({
+      query: ({ id, body }) => ({ url: `food-items/${id}`, method: "PUT", body }),
+      transformResponse: (res: { foodItem: FoodItemDTO }) => res.foodItem,
+      invalidatesTags: (_r, _e, { id }) => [{ type: "FoodItem", id }, { type: "FoodItem", id: "LIST" }],
+    }),
+    deleteFoodItem: builder.mutation<void, string>({
+      query: (id) => ({ url: `food-items/${id}`, method: "DELETE" }),
+      invalidatesTags: [{ type: "FoodItem", id: "LIST" }],
+    }),
+
+    // --- Analytics ---
+    getAnalyticsOverview: builder.query<AnalyticsOverviewDTO, { days: number }>({
+      query: ({ days }) => `analytics/overview?days=${days}`,
+    }),
+
+    // --- Gift cards (read-only) ---
+    getGiftCards: builder.query<GiftCardDTO[], void>({
+      query: () => "gift-cards",
+      transformResponse: (res: { giftCards: GiftCardDTO[] }) => res.giftCards,
     }),
   }),
 });
@@ -279,4 +437,21 @@ export const {
   useLazyGetBookingsQuery,
   useGetRatingsQuery,
   useDeleteRatingMutation,
+  useGetCouponsQuery,
+  useCreateCouponMutation,
+  useUpdateCouponMutation,
+  useDeleteCouponMutation,
+  useGetFoodItemsQuery,
+  useCreateFoodItemMutation,
+  useUpdateFoodItemMutation,
+  useDeleteFoodItemMutation,
+  useGetAnalyticsOverviewQuery,
+  useGetGiftCardsQuery,
+  useGetEventsQuery,
+  useCreateEventMutation,
+  useUpdateEventMutation,
+  useDeleteEventMutation,
+  useGetEventSessionsQuery,
+  useCreateEventSessionMutation,
+  useDeleteEventSessionMutation,
 } = adminApi;

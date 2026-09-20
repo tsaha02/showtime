@@ -39,10 +39,12 @@ router.put(
       const layoutId = existing?.id ?? (await tx.seatLayout.create({ data: { screenId } })).id;
       await tx.seat.deleteMany({ where: { layoutId } });
       await tx.seat.createMany({
-        data: req.body.seats.map((s: { row: number; col: number; label: string; category: string }) => ({
-          layoutId,
-          ...s,
-        })),
+        data: req.body.seats.map(
+          (s: { row: number; col: number; label: string; category: string; wheelchairAccessible?: boolean }) => ({
+            layoutId,
+            ...s,
+          }),
+        ),
       });
       return tx.seatLayout.findUnique({ where: { id: layoutId }, include: { seats: true } });
     });
