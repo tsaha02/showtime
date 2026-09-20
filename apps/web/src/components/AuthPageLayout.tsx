@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { Link as RouterLink } from "react-router-dom";
-import { Box, Grid, Stack, Typography } from "@mui/material";
-import LocalMoviesIcon from "@mui/icons-material/LocalMovies";
+import { Box, Grid, Stack } from "@mui/material";
 import { NowShowingRail } from "./NowShowingRail";
+import { BrandLogo } from "./BrandLogo";
 
 // Shared composition for the auth pages (login/register/forgot/reset/verify).
 // They used to be a lone centered Card floating in empty space; this wraps
@@ -17,19 +17,13 @@ export function AuthPageLayout({ children }: { children: ReactNode }) {
       <Grid container spacing={{ xs: 5, md: 6 }} alignItems="center">
         <Grid item xs={12} md={5}>
           <Stack spacing={3}>
-            <Stack
-              direction="row"
-              spacing={1}
-              alignItems="center"
+            <Box
               component={RouterLink}
               to="/"
-              sx={{ textDecoration: "none", color: "inherit", display: { xs: "none", md: "flex" } }}
+              sx={{ textDecoration: "none", color: "inherit", display: { xs: "none", md: "inline-flex" } }}
             >
-              <LocalMoviesIcon color="primary" fontSize="large" />
-              <Typography variant="h5" fontWeight={800} component="span">
-                ShowTime
-              </Typography>
-            </Stack>
+              <BrandLogo size={32} />
+            </Box>
             {children}
           </Stack>
         </Grid>

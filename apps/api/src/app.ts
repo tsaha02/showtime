@@ -54,7 +54,18 @@ export function createApp() {
   app.use(compression());
   if (env.nodeEnv === "development") app.use(morgan("dev"));
 
-  app.use(cors({ origin: [env.webOrigin, env.adminOrigin], credentials: true }));
+  // `maxAge` matters more than it looks: every request from the
+  // frontend carries a custom `X-Session-Id` header (see api.ts's
+  // `prepareHeaders`), which isn't a CORS-safelisted header — so
+  // WITHOUT `maxAge`, the browser sends a fresh `OPTIONS` preflight
+  // before every single GET/POST, doubling the round-trips for
+  // literally every API call (visible as an `OPTIONS ... 204` line
+  // right before every real request in the dev server log). `maxAge`
+  // tells the browser it can cache that preflight's result and skip
+  // re-asking for this long — real browsers cap it further regardless
+  // (Chrome ~2h, Firefox 24h), so the seconds value here is a ceiling,
+  // not a guarantee.
+  app.use(cors({ origin: [env.webOrigin, env.adminOrigin], credentials: true, maxAge: 86400 }));
   app.use(express.json());
   app.use(cookieParser());
 

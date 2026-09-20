@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useSearchParams, Link as RouterLink } from "react-router-dom";
-import { Box, TextField, Button, Typography, Paper, Alert, Stack } from "@mui/material";
+import { Box, TextField, Button, Typography, Paper, Alert, Stack, Link } from "@mui/material";
 import { useRegisterMutation } from "../store/api";
 import { useAppDispatch } from "../store/hooks";
 import { setUser } from "../store/slices/authSlice";
@@ -106,7 +106,10 @@ export function RegisterPage() {
               {isLoading ? "Creating account…" : "Sign up"}
             </Button>
             <Typography variant="body2">
-              Already have an account? <RouterLink to="/login">Log in</RouterLink>
+              Already have an account?{" "}
+              <Link component={RouterLink} to="/login">
+                Log in
+              </Link>
             </Typography>
           </Stack>
         </Box>

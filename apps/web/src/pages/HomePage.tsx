@@ -33,6 +33,7 @@ import {
   useGetIndiaCitiesQuery,
   useGetTheatresQuery,
   useLazyReverseGeocodeQuery,
+  useLazyGetNearestCitiesQuery,
   useGetRecommendedMoviesQuery,
 } from "../store/api";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
@@ -74,6 +75,7 @@ export function HomePage() {
   const { data: indiaCities } = useGetIndiaCitiesQuery();
   const { data: theatres } = useGetTheatresQuery();
   const [reverseGeocode] = useLazyReverseGeocodeQuery();
+  const [getNearestCities] = useLazyGetNearestCitiesQuery();
   const { data: recommendedMovies } = useGetRecommendedMoviesQuery();
   const theatresInCity = city ? (theatres ?? []).filter((t) => t.city === city) : [];
   const {
@@ -99,14 +101,38 @@ export function HomePage() {
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       async (position) => {
+        const { latitude: lat, longitude: lon } = position.coords;
         try {
-          const resolvedCity = await reverseGeocode({
-            lat: position.coords.latitude,
-            lon: position.coords.longitude,
-          }).unwrap();
-          if (resolvedCity) {
+          const resolvedCity = await reverseGeocode({ lat, lon }).unwrap();
+
+          // The resolved place name (e.g. "Bethuadahari") might not be
+          // one of ShowTime's serviceable cities at all — reverse-
+          // geocoding correctly returns whatever real place you're
+          // standing in, not the nearest place that happens to have a
+          // theatre. When that happens, fall back to the nearest
+          // serviceable city by real distance (see
+          // locationService.ts's findNearestServiceableCities) instead
+          // of just dead-ending on "we don't serve this city."
+          const isServiceable = resolvedCity && (serviceableCities ?? []).includes(resolvedCity);
+          if (isServiceable) {
             setCity(resolvedCity);
             dispatch(showToast({ message: `Location set to ${resolvedCity}`, severity: "success" }));
+            return;
+          }
+
+          const nearest = await getNearestCities({ lat, lon }).unwrap();
+          const closest = nearest[0];
+          if (closest) {
+            setCity(closest.city);
+            const nearLabel = resolvedCity ? `${resolvedCity} isn't served yet — showing` : "Showing";
+            dispatch(
+              showToast({
+                message: `${nearLabel} ${closest.city} (${closest.distanceKm} km away)`,
+                severity: "info",
+              }),
+            );
+          } else if (resolvedCity) {
+            dispatch(showToast({ message: `${resolvedCity} isn't served yet`, severity: "warning" }));
           } else {
             dispatch(showToast({ message: "Couldn't determine your city from your location", severity: "warning" }));
           }
@@ -181,13 +207,12 @@ export function HomePage() {
       <Typography variant="h4" gutterBottom sx={{ mb: { xs: 2, sm: 3 } }}>
         Now Showing
       </Typography>
-      <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mb: 2 }}>
+      <Stack spacing={{ xs: 1.5, md: 2 }} sx={{ mb: 2 }}>
         <TextField
           placeholder="Search movies by title…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           fullWidth
-          sx={{ flex: 2 }}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
@@ -196,37 +221,61 @@ export function HomePage() {
             ),
           }}
         />
-        <TextField
-          select
-          label="Genre"
-          value={genre}
-          onChange={(e) => setGenre(e.target.value)}
-          fullWidth
-          sx={{ flex: 1, minWidth: { md: 160 } }}
-        >
-          <MenuItem value={ALL}>All genres</MenuItem>
-          {genres?.map((g) => (
-            <MenuItem key={g} value={g}>
-              {g}
-            </MenuItem>
-          ))}
-        </TextField>
-        <Stack direction="row" spacing={0.5} sx={{ flex: 1, minWidth: { md: 220 } }} alignItems="center">
+        {/* Genre + city stay side-by-side even on mobile (rather than
+            each taking a full-width row) so this filter bar doesn't push
+            the actual movie grid below the fold — three stacked
+            full-width rows was the specific "doesn't look good on
+            mobile" complaint this replaced. */}
+        <Stack direction="row" spacing={1.5}>
+          <TextField
+            select
+            label="Genre"
+            value={genre}
+            onChange={(e) => setGenre(e.target.value)}
+            sx={{ flex: 1, minWidth: 0 }}
+          >
+            <MenuItem value={ALL}>All genres</MenuItem>
+            {genres?.map((g) => (
+              <MenuItem key={g} value={g}>
+                {g}
+              </MenuItem>
+            ))}
+          </TextField>
           <Autocomplete
-            fullWidth
+            sx={{ flex: 1.4, minWidth: 0 }}
             options={indiaCities ?? []}
             value={city}
             onChange={(_e, value) => setCity(value)}
             loading={!indiaCities}
-            renderInput={(params) => <TextField {...params} label="Now showing in" placeholder="All cities" />}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Now showing in"
+                placeholder="All cities"
+                InputProps={{
+                  ...params.InputProps,
+                  endAdornment: (
+                    <>
+                      <Tooltip title="Use my location">
+                        <span>
+                          <IconButton
+                            onClick={handleUseMyLocation}
+                            disabled={locating}
+                            color="primary"
+                            size="small"
+                            edge="end"
+                          >
+                            {locating ? <CircularProgress size={18} /> : <MyLocationIcon fontSize="small" />}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                      {params.InputProps.endAdornment}
+                    </>
+                  ),
+                }}
+              />
+            )}
           />
-          <Tooltip title="Use my location">
-            <span>
-              <IconButton onClick={handleUseMyLocation} disabled={locating} color="primary">
-                {locating ? <CircularProgress size={20} /> : <MyLocationIcon />}
-              </IconButton>
-            </span>
-          </Tooltip>
         </Stack>
       </Stack>
 

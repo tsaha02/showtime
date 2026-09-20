@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useLocation, useNavigate, Link as RouterLink } from "react-router-dom";
-import { Box, TextField, Button, Typography, Paper, Alert, Stack } from "@mui/material";
+import { Box, TextField, Button, Typography, Paper, Alert, Stack, Link } from "@mui/material";
 import { useVerifyEmailMutation, useResendOtpMutation } from "../store/api";
 import { useAppSelector } from "../store/hooks";
 import { getErrorMessage } from "../lib/apiError";
@@ -57,8 +57,15 @@ export function VerifyEmailPage() {
     return (
       <Box display="flex" justifyContent="center" py={4}>
         <Alert severity="warning">
-          No email to verify. <RouterLink to="/register">Sign up</RouterLink> or{" "}
-          <RouterLink to="/login">log in</RouterLink> first.
+          No email to verify.{" "}
+          <Link component={RouterLink} to="/register">
+            Sign up
+          </Link>{" "}
+          or{" "}
+          <Link component={RouterLink} to="/login">
+            log in
+          </Link>{" "}
+          first.
         </Alert>
       </Box>
     );

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, useLocation, Link as RouterLink, type Location } from "react-router-dom";
-import { Box, TextField, Button, Typography, Paper, Alert, Stack } from "@mui/material";
+import { Box, TextField, Button, Typography, Paper, Alert, Stack, Link } from "@mui/material";
 import { useLoginMutation } from "../store/api";
 import { useAppDispatch } from "../store/hooks";
 import { setUser } from "../store/slices/authSlice";
@@ -73,10 +73,15 @@ export function LoginPage() {
               {isLoading ? "Logging in…" : "Log in"}
             </Button>
             <Typography variant="body2">
-              <RouterLink to="/forgot-password">Forgot password?</RouterLink>
+              <Link component={RouterLink} to="/forgot-password">
+                Forgot password?
+              </Link>
             </Typography>
             <Typography variant="body2">
-              No account? <RouterLink to="/register">Sign up</RouterLink>
+              No account?{" "}
+              <Link component={RouterLink} to="/register">
+                Sign up
+              </Link>
             </Typography>
           </Stack>
         </Box>

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate, Link as RouterLink } from "react-router-dom";
-import { Box, TextField, Button, Typography, Paper, Alert, Stack } from "@mui/material";
+import { Box, TextField, Button, Typography, Paper, Alert, Stack, Link } from "@mui/material";
 import { useForgotPasswordMutation } from "../store/api";
 import { AuthPageLayout } from "../components/AuthPageLayout";
 
@@ -69,7 +69,9 @@ export function ForgotPasswordPage() {
                 {isLoading ? "Sending…" : "Send reset code"}
               </Button>
               <Typography variant="body2">
-                <RouterLink to="/login">Back to log in</RouterLink>
+                <Link component={RouterLink} to="/login">
+                  Back to log in
+                </Link>
               </Typography>
             </Stack>
           </Box>

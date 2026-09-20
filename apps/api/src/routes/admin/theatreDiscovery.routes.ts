@@ -26,6 +26,8 @@ const importSchema = z.object({
   name: z.string().min(1),
   address: z.string().nullable(),
   city: z.string().min(1),
+  lat: z.number().optional(),
+  lon: z.number().optional(),
 });
 
 // Creates a local Theatre from a real OpenStreetMap cinema location, with
@@ -39,12 +41,12 @@ router.post(
   "/import",
   validateBody(importSchema),
   asyncHandler(async (req, res) => {
-    const { osmId, name, address, city } = req.body;
+    const { osmId, name, address, city, lat, lon } = req.body;
 
     const theatre = await prisma.theatre.upsert({
       where: { osmId },
-      create: { osmId, name, city, address: address ?? `${name}, ${city}` },
-      update: { name, city, address: address ?? `${name}, ${city}` },
+      create: { osmId, name, city, address: address ?? `${name}, ${city}`, lat: lat ?? null, lon: lon ?? null },
+      update: { name, city, address: address ?? `${name}, ${city}`, lat: lat ?? null, lon: lon ?? null },
     });
 
     const existingScreens = await prisma.screen.count({ where: { theatreId: theatre.id } });

@@ -184,6 +184,16 @@ model Theatre {
   name      String
   city      String
   address   String
+  // Real coordinates when known — set on import from OpenStreetMap (see
+  // theatreDiscoveryService.ts, which already fetches these but didn't
+  // used to persist them) or hand-assigned to a real-world city center
+  // for seeded theatres (see prisma/seed.ts). Nullable because a theatre
+  // created through the plain admin CRUD form has no coordinates unless
+  // an admin adds them — "nearest theatre" (see locationService.ts's
+  // `findNearestServiceableCities`) simply skips theatres with no
+  // coordinates rather than requiring every theatre to have them.
+  lat       Float?
+  lon       Float?
   // Set when this theatre was imported from OpenStreetMap's real cinema
   // location data (admin "Import real theatres" flow — see
   // services/theatreDiscoveryService.ts) rather than hand-entered.

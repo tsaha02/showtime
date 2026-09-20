@@ -73,16 +73,35 @@ async function main() {
   // "Populate Popular Movies" bulk-import (see externalMovieService.ts
   // and curatedMovieTitles.ts), just run once here so the catalog looks
   // like a real, populated product from the very first `npm run db:seed`
-  // rather than needing an admin to click "import" first. One title per
-  // genre this app's demo narrative leans on (sci-fi flagship for the
-  // "past show, rate it now" demo; comedy/drama/action for the rest).
-  // Falls back to a hand-written placeholder if OMDb is unreachable
-  // (no network, bad/missing API key) so seeding never hard-fails.
+  // rather than needing an admin to click "import" first — a genuinely
+  // varied ~20-title catalog (mixing Hollywood and Bollywood, several
+  // genres) instead of just 4, so the home page's search/genre filters
+  // and the city-by-city show schedule below both have real breadth to
+  // demonstrate. Falls back to a hand-written placeholder per-title if
+  // OMDb is unreachable (no network, bad/missing API key) so seeding
+  // never hard-fails. "Inception" stays first — it's the flagship used
+  // for the "past show, rate it now" demo below.
   const flagshipTitles = [
     { title: "Inception", fallbackGenre: "Sci-Fi" },
     { title: "3 Idiots", fallbackGenre: "Comedy" },
     { title: "Parasite", fallbackGenre: "Drama" },
     { title: "Mad Max: Fury Road", fallbackGenre: "Action" },
+    { title: "The Dark Knight", fallbackGenre: "Action" },
+    { title: "Interstellar", fallbackGenre: "Sci-Fi" },
+    { title: "Dangal", fallbackGenre: "Drama" },
+    { title: "Gully Boy", fallbackGenre: "Drama" },
+    { title: "Spider-Man: No Way Home", fallbackGenre: "Action" },
+    { title: "Oppenheimer", fallbackGenre: "Drama" },
+    { title: "Barbie", fallbackGenre: "Comedy" },
+    { title: "La La Land", fallbackGenre: "Musical" },
+    { title: "Whiplash", fallbackGenre: "Drama" },
+    { title: "Joker", fallbackGenre: "Drama" },
+    { title: "Dune", fallbackGenre: "Sci-Fi" },
+    { title: "Top Gun: Maverick", fallbackGenre: "Action" },
+    { title: "John Wick", fallbackGenre: "Action" },
+    { title: "Zindagi Na Milegi Dobara", fallbackGenre: "Comedy" },
+    { title: "Andhadhun", fallbackGenre: "Thriller" },
+    { title: "Coco", fallbackGenre: "Animation" },
   ] as const;
 
   async function seedRealMovie(title: string, fallbackGenre: string) {
@@ -121,7 +140,7 @@ async function main() {
   for (const { title, fallbackGenre } of flagshipTitles) {
     movies.push(await seedRealMovie(title, fallbackGenre));
   }
-  const [flagshipMovie, movie2, movie3, movie4] = movies;
+  const [flagshipMovie] = movies;
 
   // --- Theatres & screens, across many Indian cities ---
   // No free public API exists for real theatre/showtime listings (that's
@@ -133,32 +152,45 @@ async function main() {
   // per theatre, named per-theatre so show-creation below can refer to
   // specific ones (for the past/guest-booking anchors) instead of by
   // fragile array index.
+  // Real-world coordinates (approximate city centers, with a small
+  // per-theatre offset so two theatres in the same city aren't at the
+  // literal same point) — this is what powers "nearest theatre" (see
+  // locationService.ts's `findNearestServiceableCities`): a real
+  // distance calculation needs real coordinates, not just a city name.
   const theatreData = [
-    { key: "metroCineplex", name: "Metro Cineplex", city: "Kolkata", address: "12 Park Street, Kolkata" },
-    { key: "riversideMultiplex", name: "Riverside Multiplex", city: "Kolkata", address: "45 Riverside Road, Kolkata" },
-    { key: "bandraBigScreen", name: "Bandra Big Screen", city: "Mumbai", address: "8 Linking Road, Bandra West, Mumbai" },
-    { key: "andheriCineworld", name: "Andheri Cineworld", city: "Mumbai", address: "Andheri West, Mumbai" },
-    { key: "connaughtCinemaHub", name: "Connaught Cinema Hub", city: "Delhi", address: "21 Connaught Place, New Delhi" },
-    { key: "saketSelectScreens", name: "Saket Select Screens", city: "Delhi", address: "Saket, New Delhi" },
-    { key: "indiranagarImax", name: "Indiranagar IMAX", city: "Bangalore", address: "100 Ft Road, Indiranagar, Bangalore" },
-    { key: "whitefieldMultiplex", name: "Whitefield Multiplex", city: "Bangalore", address: "Whitefield, Bangalore" },
-    { key: "marinaMovieHouse", name: "Marina Movie House", city: "Chennai", address: "Marina Beach Road, Chennai" },
-    { key: "tNagarTalkies", name: "T Nagar Talkies", city: "Chennai", address: "T Nagar, Chennai" },
-    { key: "hitechCityCinemas", name: "Hitech City Cinemas", city: "Hyderabad", address: "Hitech City, Hyderabad" },
-    { key: "banjaraHillsScreens", name: "Banjara Hills Screens", city: "Hyderabad", address: "Banjara Hills, Hyderabad" },
-    { key: "koregaonParkCinema", name: "Koregaon Park Cinema", city: "Pune", address: "Koregaon Park, Pune" },
-    { key: "vimanNagarMultiplex", name: "Viman Nagar Multiplex", city: "Pune", address: "Viman Nagar, Pune" },
-    { key: "sgHighwayScreens", name: "SG Highway Screens", city: "Ahmedabad", address: "SG Highway, Ahmedabad" },
-    { key: "navrangpuraCinema", name: "Navrangpura Cinema", city: "Ahmedabad", address: "Navrangpura, Ahmedabad" },
-    { key: "miRoadMovieHouse", name: "MI Road Movie House", city: "Jaipur", address: "MI Road, Jaipur" },
-    { key: "malviyaNagarCinemas", name: "Malviya Nagar Cinemas", city: "Jaipur", address: "Malviya Nagar, Jaipur" },
-    { key: "hazratganjTalkies", name: "Hazratganj Talkies", city: "Lucknow", address: "Hazratganj, Lucknow" },
-    { key: "gomtiNagarScreens", name: "Gomti Nagar Screens", city: "Lucknow", address: "Gomti Nagar, Lucknow" },
+    { key: "metroCineplex", name: "Metro Cineplex", city: "Kolkata", address: "12 Park Street, Kolkata", lat: 22.5726, lon: 88.3639 },
+    { key: "riversideMultiplex", name: "Riverside Multiplex", city: "Kolkata", address: "45 Riverside Road, Kolkata", lat: 22.5850, lon: 88.3468 },
+    { key: "bandraBigScreen", name: "Bandra Big Screen", city: "Mumbai", address: "8 Linking Road, Bandra West, Mumbai", lat: 19.0596, lon: 72.8295 },
+    { key: "andheriCineworld", name: "Andheri Cineworld", city: "Mumbai", address: "Andheri West, Mumbai", lat: 19.1197, lon: 72.8468 },
+    { key: "connaughtCinemaHub", name: "Connaught Cinema Hub", city: "Delhi", address: "21 Connaught Place, New Delhi", lat: 28.6315, lon: 77.2167 },
+    { key: "saketSelectScreens", name: "Saket Select Screens", city: "Delhi", address: "Saket, New Delhi", lat: 28.5245, lon: 77.2066 },
+    { key: "indiranagarImax", name: "Indiranagar IMAX", city: "Bangalore", address: "100 Ft Road, Indiranagar, Bangalore", lat: 12.9719, lon: 77.6412 },
+    { key: "whitefieldMultiplex", name: "Whitefield Multiplex", city: "Bangalore", address: "Whitefield, Bangalore", lat: 12.9698, lon: 77.7500 },
+    { key: "marinaMovieHouse", name: "Marina Movie House", city: "Chennai", address: "Marina Beach Road, Chennai", lat: 13.0500, lon: 80.2824 },
+    { key: "tNagarTalkies", name: "T Nagar Talkies", city: "Chennai", address: "T Nagar, Chennai", lat: 13.0418, lon: 80.2341 },
+    { key: "hitechCityCinemas", name: "Hitech City Cinemas", city: "Hyderabad", address: "Hitech City, Hyderabad", lat: 17.4483, lon: 78.3915 },
+    { key: "banjaraHillsScreens", name: "Banjara Hills Screens", city: "Hyderabad", address: "Banjara Hills, Hyderabad", lat: 17.4156, lon: 78.4347 },
+    { key: "koregaonParkCinema", name: "Koregaon Park Cinema", city: "Pune", address: "Koregaon Park, Pune", lat: 18.5362, lon: 73.8940 },
+    { key: "vimanNagarMultiplex", name: "Viman Nagar Multiplex", city: "Pune", address: "Viman Nagar, Pune", lat: 18.5679, lon: 73.9143 },
+    { key: "sgHighwayScreens", name: "SG Highway Screens", city: "Ahmedabad", address: "SG Highway, Ahmedabad", lat: 23.0304, lon: 72.5066 },
+    { key: "navrangpuraCinema", name: "Navrangpura Cinema", city: "Ahmedabad", address: "Navrangpura, Ahmedabad", lat: 23.0367, lon: 72.5601 },
+    { key: "miRoadMovieHouse", name: "MI Road Movie House", city: "Jaipur", address: "MI Road, Jaipur", lat: 26.9157, lon: 75.8079 },
+    { key: "malviyaNagarCinemas", name: "Malviya Nagar Cinemas", city: "Jaipur", address: "Malviya Nagar, Jaipur", lat: 26.8535, lon: 75.8078 },
+    { key: "hazratganjTalkies", name: "Hazratganj Talkies", city: "Lucknow", address: "Hazratganj, Lucknow", lat: 26.8508, lon: 80.9462 },
+    { key: "gomtiNagarScreens", name: "Gomti Nagar Screens", city: "Lucknow", address: "Gomti Nagar, Lucknow", lat: 26.8503, lon: 81.0161 },
+    // A smaller, real West Bengal town — deliberately added so "use my
+    // location" from an even smaller, unserviceable nearby town (e.g.
+    // Bethuadahari, ~15km north) has a real, close, serviceable city to
+    // resolve to, rather than jumping all the way to Kolkata.
+    { key: "krishnanagarCineHub", name: "Krishnanagar Cine Hub", city: "Krishnanagar", address: "Ghurni Road, Krishnanagar", lat: 23.4058, lon: 88.5017 },
+    { key: "nadiaMovieHouse", name: "Nadia Movie House", city: "Krishnanagar", address: "Station Road, Krishnanagar", lat: 23.3987, lon: 88.4954 },
   ] as const;
 
   const screensByTheatreKey: Record<string, { screen1: string; screen2: string }> = {};
   for (const t of theatreData) {
-    const theatre = await prisma.theatre.create({ data: { name: t.name, city: t.city, address: t.address } });
+    const theatre = await prisma.theatre.create({
+      data: { name: t.name, city: t.city, address: t.address, lat: t.lat, lon: t.lon },
+    });
     const screenIds: string[] = [];
     for (const name of ["Screen 1", "Screen 2"]) {
       const screen = await prisma.screen.create({ data: { theatreId: theatre.id, name } });
@@ -204,15 +236,14 @@ async function main() {
   const pastShow = await createShow(flagshipMovie.id, metro.screen1, new Date(now.getTime() - hours(50)), flagshipMovie.durationMins);
 
   // One future show per screen across every theatre/city, cycling
-  // through the seeded movie list — this is what makes every seeded city
-  // (not just Kolkata) actually have something playing, without hand-
-  // listing 40 individual createShow calls. Only the four hand-seeded
-  // movies are used here (deterministic, no network needed to seed) —
-  // the much larger real-movie catalog comes from the admin's separate
-  // "Populate Popular Movies" bulk-import action against OMDb (see
-  // routes/admin/externalMovies.routes.ts), which needs a live API key
-  // and network access the seed script can't assume it has.
-  const seedMovies = [flagshipMovie, movie2, movie3, movie4];
+  // through the full ~20-movie seeded list — this is what makes every
+  // seeded city (not just Kolkata) actually have something playing,
+  // without hand-listing dozens of individual createShow calls. An even
+  // larger real-movie catalog is still available via the admin's
+  // separate "Populate Popular Movies" bulk-import action against OMDb
+  // (~65 titles — see routes/admin/externalMovies.routes.ts) for anyone
+  // who wants more than what's seeded by default.
+  const seedMovies = movies;
   const futureShows: Awaited<ReturnType<typeof createShow>>[] = [];
   let movieCursor = 0;
   let hourCursor = 2;
@@ -275,17 +306,49 @@ async function main() {
       durationMins: 150,
       posterUrl: null,
     },
+    {
+      title: "City Premier League: Finals Night",
+      description: "The season-ending showdown between the top two teams, screened live with a full commentary crew.",
+      category: "SPORTS" as const,
+      durationMins: 180,
+      posterUrl: null,
+    },
+    {
+      title: "Improv & Sketch Comedy Jam",
+      description: "A fully improvised sketch show — every scene built live from audience suggestions.",
+      category: "COMEDY" as const,
+      durationMins: 75,
+      posterUrl: null,
+    },
+    {
+      title: "Weekend Watercolor Workshop",
+      description: "A hands-on painting workshop for beginners — all materials included, no experience needed.",
+      category: "WORKSHOP" as const,
+      durationMins: 180,
+      posterUrl: null,
+    },
   ];
   const events = await Promise.all(eventData.map((e) => prisma.event.create({ data: e })));
 
-  const indiranagar = screensByTheatreKey.indiranagarImax;
-  const hazratganj = screensByTheatreKey.hazratganjTalkies;
+  // Spread sessions across several screens (not just two) for variety —
+  // includes Krishnanagar, so a small-town visitor has real events to
+  // find nearby too, not just theatres.
+  const eventScreenKeys = [
+    "indiranagarImax",
+    "hazratganjTalkies",
+    "krishnanagarCineHub",
+    "marinaMovieHouse",
+    "koregaonParkCinema",
+    "sgHighwayScreens",
+  ] as const;
   let eventHourCursor = 5;
-  for (const event of events) {
+  for (let i = 0; i < events.length; i++) {
+    const event = events[i];
+    const screens = screensByTheatreKey[eventScreenKeys[i % eventScreenKeys.length]];
     eventHourCursor += 6;
-    await createEventSession(event.id, indiranagar.screen1, new Date(now.getTime() + hours(eventHourCursor)), event.durationMins);
+    await createEventSession(event.id, screens.screen1, new Date(now.getTime() + hours(eventHourCursor)), event.durationMins);
     eventHourCursor += 6;
-    await createEventSession(event.id, hazratganj.screen2, new Date(now.getTime() + hours(eventHourCursor)), event.durationMins);
+    await createEventSession(event.id, screens.screen2, new Date(now.getTime() + hours(eventHourCursor)), event.durationMins);
   }
 
   // --- Historical CONFIRMED booking against the past show, so the demo
@@ -397,7 +460,7 @@ async function main() {
   console.log(`Theatres seeded:  ${theatreData.length} (${theatreData.length * 2} screens)`);
   console.log("Demo coupons:     WELCOME10 (10% off), FLAT50 (₹50 off, max 100 uses)");
   console.log("Demo food items:  7 snacks/drinks/combos");
-  console.log(`Demo events:      ${events.length} (comedy/concert/theatre), 2 sessions each`);
+  console.log(`Demo events:      ${events.length} (comedy/concert/theatre/sports/workshop), 2 sessions each`);
 }
 
 main()

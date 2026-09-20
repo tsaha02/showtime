@@ -1,4 +1,5 @@
 import { redis } from "../lib/redis";
+import { prisma } from "../lib/prisma";
 import { ApiError } from "../utils/ApiError";
 
 // Two genuinely free, keyless public APIs, used for two different jobs:
@@ -69,4 +70,52 @@ export async function reverseGeocodeCity(lat: number, lon: number): Promise<stri
   // Fall back through increasingly coarse fields — a rural coordinate
   // may not have a `city`, but usually has SOME administrative area name.
   return address.city ?? address.town ?? address.state_district ?? address.county ?? null;
+}
+
+// Great-circle distance in kilometers — the standard formula, no
+// external geo library needed for this project's scale (a few dozen
+// theatres, one distance computation per "use my location" click).
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export interface NearestCity {
+  city: string;
+  distanceKm: number;
+}
+
+// Answers "which of ShowTime's SERVICEABLE cities is physically closest
+// to this point" — the missing piece that made "use my location" a
+// dead end for anyone not standing in one of the exact serviceable
+// cities: reverse-geocoding a rural/small-town coordinate correctly
+// returns that town's own name (e.g. "Bethuadahari"), which is never
+// going to exactly match a city ShowTime has theatres in. Distance to
+// the nearest REAL theatre (not a city-centroid lookup table) is what
+// actually answers "where should I go to catch a movie," so this
+// reduces over every theatre with known coordinates rather than a
+// separate, hand-maintained city-coordinate table that could drift out
+// of sync with which cities actually have theatres.
+export async function findNearestServiceableCities(lat: number, lon: number, limit = 3): Promise<NearestCity[]> {
+  const theatres = await prisma.theatre.findMany({
+    where: { lat: { not: null }, lon: { not: null } },
+    select: { city: true, lat: true, lon: true },
+  });
+
+  const nearestPerCity = new Map<string, number>();
+  for (const t of theatres) {
+    const distanceKm = haversineKm(lat, lon, t.lat!, t.lon!);
+    const existing = nearestPerCity.get(t.city);
+    if (existing === undefined || distanceKm < existing) nearestPerCity.set(t.city, distanceKm);
+  }
+
+  return [...nearestPerCity.entries()]
+    .map(([city, distanceKm]) => ({ city, distanceKm: Math.round(distanceKm * 10) / 10 }))
+    .sort((a, b) => a.distanceKm - b.distanceKm)
+    .slice(0, limit);
 }

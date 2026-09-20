@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useLocation, useNavigate, Link as RouterLink } from "react-router-dom";
-import { Box, TextField, Button, Typography, Paper, Alert, Stack } from "@mui/material";
+import { Box, TextField, Button, Typography, Paper, Alert, Stack, Link } from "@mui/material";
 import { useResetPasswordMutation } from "../store/api";
 import { useAppDispatch } from "../store/hooks";
 import { setUser } from "../store/slices/authSlice";
@@ -105,7 +105,10 @@ export function ResetPasswordPage() {
               {isLoading ? "Resetting…" : "Reset password"}
             </Button>
             <Typography variant="body2">
-              Didn't get a code? <RouterLink to="/forgot-password">Request a new one</RouterLink>
+              Didn't get a code?{" "}
+              <Link component={RouterLink} to="/forgot-password">
+                Request a new one
+              </Link>
             </Typography>
           </Stack>
         </Box>

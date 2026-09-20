@@ -37,6 +37,7 @@ import type {
   GiftCardPurchaseResponseDTO,
 } from "@showtime/shared";
 import { getSessionId } from "../lib/sessionId";
+import { clearUser } from "./slices/authSlice";
 
 // Not exported from @showtime/shared yet (see apps/api/src/routes/offers.routes.ts) —
 // mirrors that route's response shape exactly.
@@ -53,16 +54,35 @@ export type SeatMapResponse = SeatMapResponseDTO;
 // cache invalidation keeps things simple: e.g. confirming a booking
 // invalidates "MyBookings" so the my-bookings list refetches, instead of us
 // having to manually patch the cache after every mutation.
+const rawBaseQuery = fetchBaseQuery({
+  baseUrl: import.meta.env.VITE_API_URL ?? "http://localhost:4000/api",
+  credentials: "include",
+  prepareHeaders: (headers) => {
+    headers.set("x-session-id", getSessionId());
+    return headers;
+  },
+});
+
+// Wraps the plain fetch base query so that ANY endpoint hitting a 401 —
+// not just /auth/me — clears the (now-stale) logged-in user from
+// authSlice. The concrete case this guards against: a valid, correctly-
+// signed session cookie whose userId no longer exists server-side (see
+// the matching comment in apps/api's errorHandler.ts) surfaces as a 401
+// from whatever endpoint the user happened to be using (e.g. confirming
+// a booking) — without this, the UI would keep showing them as logged
+// in while every authenticated action kept failing, with no obvious way
+// to recover short of manually clearing cookies.
+const baseQueryWithAuthReset: typeof rawBaseQuery = async (args, api, extraOptions) => {
+  const result = await rawBaseQuery(args, api, extraOptions);
+  if (result.error?.status === 401) {
+    api.dispatch(clearUser());
+  }
+  return result;
+};
+
 export const api = createApi({
   reducerPath: "api",
-  baseQuery: fetchBaseQuery({
-    baseUrl: import.meta.env.VITE_API_URL ?? "http://localhost:4000/api",
-    credentials: "include",
-    prepareHeaders: (headers) => {
-      headers.set("x-session-id", getSessionId());
-      return headers;
-    },
-  }),
+  baseQuery: baseQueryWithAuthReset,
   tagTypes: ["Movie", "MyBookings", "Ratings", "Auth"],
   endpoints: (builder) => ({
     // --- Catalog ---
@@ -113,6 +133,13 @@ export const api = createApi({
     reverseGeocode: builder.query<string | null, { lat: number; lon: number }>({
       query: ({ lat, lon }) => ({ url: "/locations/reverse-geocode", params: { lat, lon } }),
       transformResponse: (res: { city: string | null }) => res.city,
+    }),
+    // "You're near X, which we don't serve — but Y (Zkm away) is" — the
+    // nearest ShowTime-serviceable city to a raw lat/lon, computed from
+    // real theatre coordinates (see locationService.ts on the API side).
+    getNearestCities: builder.query<{ city: string; distanceKm: number }[], { lat: number; lon: number }>({
+      query: ({ lat, lon }) => ({ url: "/locations/nearest-cities", params: { lat, lon } }),
+      transformResponse: (res: { nearest: { city: string; distanceKm: number }[] }) => res.nearest,
     }),
 
     // --- Events (concerts, comedy nights, plays — same booking engine as
@@ -303,6 +330,7 @@ export const {
   useGetCitiesQuery,
   useGetIndiaCitiesQuery,
   useLazyReverseGeocodeQuery,
+  useLazyGetNearestCitiesQuery,
   useGetEventsQuery,
   useGetEventQuery,
   useGetEventSessionsQuery,

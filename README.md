@@ -339,6 +339,7 @@ independent of login — see Layer 1 above).
 | GET | `/api/theatres/cities` | — | distinct **serviceable** city list (cities ShowTime actually has theatres in) |
 | GET | `/api/locations/india-cities` | — (rate-limited) | ~4,267 real Indian cities/towns, for the city picker's search box — see below |
 | GET | `/api/locations/reverse-geocode?lat=&lon=` | — (rate-limited) | resolves browser geolocation coordinates to a city name |
+| GET | `/api/locations/nearest-cities?lat=&lon=` | — (rate-limited) | nearest serviceable city/cities to a coordinate, by real distance to actual theatres — see below |
 | GET | `/api/shows/:showId/seatmap` | X-Session-Id | live seat statuses + per-category prices |
 | POST | `/api/seats/hold` | X-Session-Id | `{showId,seatId}` → 409 if taken |
 | POST | `/api/seats/release` | X-Session-Id | `{showId,seatId}` |
@@ -537,15 +538,36 @@ Two free, keyless public APIs back the city picker (`apps/api/src/services/locat
   simpler and avoids a CORS dance from the browser).
 
 **The city Autocomplete's list and the "what can I actually book" list
-are deliberately two different data sources.** You can pick — or have
-geolocation resolve — literally any real Indian city (e.g. "Siliguri," a
-real city ShowTime has no theatres in) from the big list above. Doing so
-is allowed and expected; `GET /api/movies?bookable=true&city=Siliguri`
-will legitimately return zero results, and the UI shows a plain "ShowTime
-doesn't have theatres in Siliguri yet" message with the actual
-serviceable cities (`GET /api/theatres/cities` — the curated ~10-city
-list) offered as quick picks, rather than a bare empty grid or a
-pretended "nearest theatre" calculation.
+are deliberately two different data sources.** You can pick literally
+any real Indian city (e.g. "Siliguri," a real city ShowTime has no
+theatres in) from the big list above. Doing so is allowed and expected;
+`GET /api/movies?bookable=true&city=Siliguri` will legitimately return
+zero results, and the UI shows a plain "ShowTime doesn't have theatres
+in Siliguri yet" message with the actual serviceable cities
+(`GET /api/theatres/cities` — the curated ~11-city list) offered as
+quick picks.
+
+**"Use my location" is different — it resolves to a real nearest
+theatre, not just a name match.** Reverse-geocoding a coordinate
+correctly returns whatever real place you're standing in (a small town,
+a district name), which will almost never exactly string-match one of
+the ~11 cities ShowTime has theatres in. So `Theatre.lat`/`Theatre.lon`
+(real coordinates — set on OSM import, or hand-assigned to a real
+city-center for seeded theatres) back a second lookup,
+**`GET /api/locations/nearest-cities?lat=&lon=`**
+(`locationService.ts`'s `findNearestServiceableCities`), which computes
+real great-circle (haversine) distance from that coordinate to every
+theatre with known coordinates and returns the nearest serviceable
+city. Concretely: geolocating from Bethuadahari (a real small town in
+West Bengal) reverse-geocodes to "Nadia" (its district — Nominatim has
+no finer-grained `city` tag there), which isn't serviceable, so the
+city filter falls back to the nearest one that is — **Krishnanagar,
+~11km away** — with a toast saying exactly that, rather than either
+silently picking an unrelated city or dead-ending on "not served." A
+typed/Autocomplete-picked unserviceable city still gets the plain quick-
+picks fallback above (it has no coordinate to compute a real distance
+from — you typed a name, not a GPS point) — only the geolocation path
+has a real point to measure from.
 
 ### Real theatre locations via OpenStreetMap, and a fast bulk show scheduler
 
@@ -1133,8 +1155,13 @@ below — it's a real title, not a fixed name).
 All three seeded accounts (`admin`, `demo`, `sam`) are pre-marked
 `emailVerified: true` so demo logins skip the OTP step entirely — that
 flow is still fully live for any *new* account registered through the
-app. Seed data spans ten Indian cities across twenty theatres (forty
-screens), so the home page's city filter has real breadth to demonstrate.
+app. Seed data spans eleven Indian cities/towns across twenty-two
+theatres (forty-four screens), so the home page's city filter has real
+breadth to demonstrate — including **Krishnanagar**, a smaller real
+West Bengal town added specifically so the "use my location" nearest-
+city fallback (see above) has a genuinely close, real serviceable city
+to resolve to from an even smaller nearby town, instead of jumping all
+the way to a metro.
 
 Also seeded: two demo coupons (`WELCOME10` — 10% off, `FLAT50` — ₹50
 off, max 100 uses) and a 7-item F&B menu (popcorn/nachos/drinks/a
@@ -1143,18 +1170,20 @@ try immediately. Every seeded user gets a real, unique `referralCode`
 (visible on their `/profile` page in the web app) — register a new
 account with `?ref=<their code>` in the URL to see the referral bonus
 paid to both sides on that new account's first confirmed booking. Also
-seeded: 3 events (a comedy night, a concert, a play), 2 sessions each
-— browse them at `/events`.
+seeded: 6 events (comedy, concert, theatre, sports, workshop), 2
+sessions each — browse them at `/events`.
 
-The 4 seeded movies (Inception, 3 Idiots, Parasite, Mad Max: Fury Road)
-are themselves real data — posters, synopses, genres, and runtimes
-resolved live through OMDb during seeding (falling back to a
-placeholder only if OMDb is unreachable), not the random stock-photo
-placeholders this project used before. **To get a much larger, ~65-
-title catalog** on top of those four, log into the admin panel and
-click **"Populate Popular Movies"** on the Movies page once (needs
-`OMDB_API_KEY` configured — see above). This is a one-click action, not
-part of the seed script itself, since it needs live network access and
+The 20 seeded movies (Inception, The Dark Knight, Interstellar, 3
+Idiots, Dangal, Parasite, Oppenheimer, Barbie, and more — a deliberate
+mix of Hollywood and Bollywood across several genres) are themselves
+real data — posters, synopses, genres, and runtimes resolved live
+through OMDb during seeding (falling back to a placeholder only if
+OMDb is unreachable), not the random stock-photo placeholders this
+project used before. **To get an even larger, ~65-title catalog** on
+top of those twenty, log into the admin panel and click **"Populate
+Popular Movies"** on the Movies page once (needs `OMDB_API_KEY`
+configured — see above). This is a one-click action, not part of the
+seed script itself, since it needs live network access and
 a valid API key that a CI/offline seed run can't assume it has.
 
 ### Proving the concurrency handling

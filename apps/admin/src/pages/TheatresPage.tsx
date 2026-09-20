@@ -114,9 +114,9 @@ export default function TheatresPage() {
     }
   }
 
-  async function handleDiscoverImport(osmId: string, name: string, address: string | null) {
+  async function handleDiscoverImport(osmId: string, name: string, address: string | null, lat: number, lon: number) {
     try {
-      await importDiscoveredTheatre({ osmId, name, address, city: discoverCity.trim() }).unwrap();
+      await importDiscoveredTheatre({ osmId, name, address, city: discoverCity.trim(), lat, lon }).unwrap();
       setDiscoverSuccess(`Imported ${name}`);
     } catch (err) {
       setDiscoverError(extractErrorMessage(err));
@@ -281,7 +281,7 @@ export default function TheatresPage() {
                 <CardActions>
                   <Button
                     size="small"
-                    onClick={() => handleDiscoverImport(result.osmId, result.name, result.address)}
+                    onClick={() => handleDiscoverImport(result.osmId, result.name, result.address, result.lat, result.lon)}
                   >
                     Import
                   </Button>

@@ -224,7 +224,7 @@ export const adminApi = createApi({
     }),
     importDiscoveredTheatre: builder.mutation<
       { theatre: TheatreWithScreens },
-      { osmId: string; name: string; address: string | null; city: string }
+      { osmId: string; name: string; address: string | null; city: string; lat?: number; lon?: number }
     >({
       query: (body) => ({ url: "theatre-discovery/import", method: "POST", body }),
       invalidatesTags: [{ type: "Theatre", id: "LIST" }],

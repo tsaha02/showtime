@@ -473,34 +473,93 @@ export function SeatMapPage() {
       )}
 
       {activeStep === 1 && (
-        <Card sx={{ maxWidth: 480 }}>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Your details
-            </Typography>
-            <Stack spacing={2}>
-              <TextField label="Full name" value={guestName} onChange={(e) => setGuestName(e.target.value)} required />
-              <TextField
-                label="Email"
-                type="email"
-                value={guestEmail}
-                onChange={(e) => setGuestEmail(e.target.value)}
-                required
-              />
-              <TextField
-                label="Phone (optional)"
-                value={guestPhone}
-                onChange={(e) => setGuestPhone(e.target.value)}
-              />
-              <Stack direction="row" spacing={2}>
-                <Button onClick={() => setActiveStep(0)}>Back</Button>
-                <Button variant="contained" onClick={goToConfirmFromDetails}>
-                  Continue
-                </Button>
-              </Stack>
-            </Stack>
-          </CardContent>
-        </Card>
+        // Two columns, same pattern as the Confirm & Pay step below — a
+        // single narrow, left-floating Card here left a large empty void
+        // on wide screens (the specific "doesn't look good" complaint
+        // this replaced), so the seat/show summary now fills that space
+        // meaningfully instead of sitting blank.
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={5}>
+            <Card sx={{ position: { md: "sticky" }, top: { md: 88 } }}>
+              <Box
+                sx={{
+                  px: 3,
+                  py: 2.5,
+                  background: (t) =>
+                    `linear-gradient(135deg, ${t.palette.primary.dark}33, ${t.palette.secondary.dark}1a)`,
+                  borderBottom: "1px solid",
+                  borderColor: "divider",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 1.5,
+                }}
+              >
+                <LocalActivityOutlinedIcon color="secondary" sx={{ mt: 0.25 }} />
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={700} lineHeight={1.3}>
+                    {data.show.movieTitle}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {data.show.theatreName} · {data.show.screenName}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {new Date(data.show.startTime).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+                  </Typography>
+                </Box>
+              </Box>
+              <CardContent>
+                <Typography variant="overline" color="text.secondary">
+                  Seats
+                </Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2, mt: 0.5 }}>
+                  {heldSeats.map((seat) => (
+                    <Chip key={seat.id} label={seat.label} size="small" color="secondary" variant="outlined" />
+                  ))}
+                </Stack>
+                <Divider sx={{ mb: 2 }} />
+                <Stack direction="row" justifyContent="space-between">
+                  <Typography variant="subtitle1">Subtotal</Typography>
+                  <Typography variant="subtitle1">₹{cartTotal + foodTotal}</Typography>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={12} md={7}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Your details
+                </Typography>
+                <Stack spacing={2}>
+                  <TextField
+                    label="Full name"
+                    value={guestName}
+                    onChange={(e) => setGuestName(e.target.value)}
+                    required
+                  />
+                  <TextField
+                    label="Email"
+                    type="email"
+                    value={guestEmail}
+                    onChange={(e) => setGuestEmail(e.target.value)}
+                    required
+                  />
+                  <TextField
+                    label="Phone (optional)"
+                    value={guestPhone}
+                    onChange={(e) => setGuestPhone(e.target.value)}
+                  />
+                  <Stack direction="row" spacing={2}>
+                    <Button onClick={() => setActiveStep(0)}>Back</Button>
+                    <Button variant="contained" onClick={goToConfirmFromDetails}>
+                      Continue
+                    </Button>
+                  </Stack>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
       )}
 
       {activeStep === 2 && (

@@ -86,6 +86,11 @@ export interface TheatreDTO {
   address: string;
 }
 
+export interface NearestCityDTO {
+  city: string;
+  distanceKm: number;
+}
+
 export interface ScreenDTO {
   id: string;
   theatreId: string;
