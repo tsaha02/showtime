@@ -17,6 +17,7 @@ import type {
   EventDTO,
   EventInput,
 } from "@showtime/shared";
+import { setUnauthenticated } from "./authSlice";
 
 // VITE_API_URL already includes the /admin prefix (see .env) — every
 // endpoint path below is relative to http://localhost:4000/api/admin.
@@ -121,9 +122,61 @@ export interface EventSessionInput {
   prices: { category: SeatCategory; price: number }[];
 }
 
+const rawBaseQuery = fetchBaseQuery({ baseUrl, credentials: "include" });
+
+// Same reauth pattern as apps/web/src/store/api.ts — see its longer
+// comment for the full reasoning. Short version: the access-token
+// cookie is short-lived on purpose (15 min, apps/api's jwt.ts), so a 401
+// usually just means "silently refresh it," not "actually logged out."
+// This app previously had NO 401 handling at all (AuthGate only checked
+// the initial `/auth/me` call's result, so a token expiring mid-session
+// during any other mutation — creating a show, importing a movie —
+// would 401 with no recovery and no visible explanation); this both
+// adds the missing recovery and makes an eventual real logout (refresh
+// token also expired) actually update `authSlice` instead of just
+// failing requests silently.
+let refreshPromise: Promise<boolean> | null = null;
+
+function requestUrl(args: string | Parameters<typeof rawBaseQuery>[0]): string {
+  return typeof args === "string" ? args : args.url;
+}
+
+const SKIP_REAUTH_URLS = new Set(["auth/login", "auth/refresh"]);
+
+const baseQueryWithReauth: typeof rawBaseQuery = async (args, api, extraOptions) => {
+  let result = await rawBaseQuery(args, api, extraOptions);
+
+  if (result.error?.status === 401 && !SKIP_REAUTH_URLS.has(requestUrl(args))) {
+    if (!refreshPromise) {
+      // `rawBaseQuery`'s return type is `T | Promise<T>` (RTK Query's
+      // `MaybePromise`), which doesn't have `.then` on the synchronous
+      // branch — wrapping the await in an async IIFE (instead of
+      // chaining `.then`/`.finally` directly on the call) sidesteps that
+      // without needing to special-case the non-Promise branch.
+      refreshPromise = (async () => {
+        try {
+          const refreshResult = await rawBaseQuery({ url: "auth/refresh", method: "POST" }, api, extraOptions);
+          return !refreshResult.error;
+        } finally {
+          refreshPromise = null;
+        }
+      })();
+    }
+    const refreshed = await refreshPromise;
+    if (refreshed) {
+      result = await rawBaseQuery(args, api, extraOptions);
+    }
+  }
+
+  if (result.error?.status === 401) {
+    api.dispatch(setUnauthenticated());
+  }
+  return result;
+};
+
 export const adminApi = createApi({
   reducerPath: "adminApi",
-  baseQuery: fetchBaseQuery({ baseUrl, credentials: "include" }),
+  baseQuery: baseQueryWithReauth,
   tagTypes: [
     "Movie",
     "Theatre",

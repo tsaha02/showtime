@@ -66,17 +66,62 @@ const rawBaseQuery = fetchBaseQuery({
   },
 });
 
-// Wraps the plain fetch base query so that ANY endpoint hitting a 401 —
-// not just /auth/me — clears the (now-stale) logged-in user from
-// authSlice. The concrete case this guards against: a valid, correctly-
-// signed session cookie whose userId no longer exists server-side (see
-// the matching comment in apps/api's errorHandler.ts) surfaces as a 401
-// from whatever endpoint the user happened to be using (e.g. confirming
-// a booking) — without this, the UI would keep showing them as logged
-// in while every authenticated action kept failing, with no obvious way
-// to recover short of manually clearing cookies.
+// The access-token cookie is short-lived (15 min, see apps/api's
+// jwt.ts) by design, so a 401 usually just means it expired, not that
+// the user actually logged out — the long-lived refresh cookie (also
+// httpOnly, never touched by this code directly) is still good. Before
+// giving up, silently exchange it for a new access/refresh pair via
+// POST /auth/refresh and retry the original request once. Only after
+// THAT still comes back 401 (refresh cookie also expired/invalid, or
+// this really is a fresh 401 on a request that isn't about auth at all)
+// do we clear the logged-in user — same case this used to handle
+// directly: a signed-valid cookie whose userId no longer exists
+// server-side (see the matching comment in apps/api's errorHandler.ts).
+//
+// `refreshPromise` de-dupes concurrent 401s: if three queries fire at
+// once and all get a stale access token back, they share ONE refresh
+// call instead of racing three (which would have the second and third
+// refresh calls try to use a refresh token the first one already
+// rotated-and-revoked — see refreshTokenService.ts's reuse-detection
+// comment for why that would actually log the user out, not just waste
+// a request).
+let refreshPromise: Promise<boolean> | null = null;
+
+function requestUrl(args: string | Parameters<typeof rawBaseQuery>[0]): string {
+  return typeof args === "string" ? args : args.url;
+}
+
+// These endpoints either establish a session themselves (a 401 here is
+// a real "wrong password," not a stale token) or ARE the refresh call —
+// retrying any of them through another refresh would be pointless at
+// best and an infinite loop at worst.
+const SKIP_REAUTH_URLS = new Set(["/auth/login", "/auth/register", "/auth/refresh"]);
+
 const baseQueryWithAuthReset: typeof rawBaseQuery = async (args, api, extraOptions) => {
-  const result = await rawBaseQuery(args, api, extraOptions);
+  let result = await rawBaseQuery(args, api, extraOptions);
+
+  if (result.error?.status === 401 && !SKIP_REAUTH_URLS.has(requestUrl(args))) {
+    if (!refreshPromise) {
+      // `rawBaseQuery`'s return type is `T | Promise<T>` (RTK Query's
+      // `MaybePromise`), which doesn't have `.then` on the synchronous
+      // branch — wrapping the await in an async IIFE (instead of
+      // chaining `.then`/`.finally` directly on the call) sidesteps that
+      // without needing to special-case the non-Promise branch.
+      refreshPromise = (async () => {
+        try {
+          const refreshResult = await rawBaseQuery({ url: "/auth/refresh", method: "POST" }, api, extraOptions);
+          return !refreshResult.error;
+        } finally {
+          refreshPromise = null;
+        }
+      })();
+    }
+    const refreshed = await refreshPromise;
+    if (refreshed) {
+      result = await rawBaseQuery(args, api, extraOptions);
+    }
+  }
+
   if (result.error?.status === 401) {
     api.dispatch(clearUser());
   }

@@ -77,7 +77,7 @@ in the same Render project. Render gives you connection strings for both
 | `DATABASE_URL` | from Render's Postgres instance |
 | `REDIS_URL` | from Render's Redis/Key-Value instance |
 | `JWT_SECRET` | generate a real random secret (e.g. `openssl rand -hex 32`) — **not** the `dev-only-secret` from local `.env` |
-| `JWT_EXPIRES_IN` | `7d` |
+| `JWT_EXPIRES_IN` | `15m` — this is the ACCESS token's lifetime only; staying logged in longer is handled by a separate, non-configurable refresh token (see INTERVIEW_NOTES.md) |
 | `NODE_ENV` | `production` — this is what switches cookies to `SameSite=None; Secure` |
 | `WEB_ORIGIN` | your deployed `apps/web` Vercel URL, e.g. `https://showtime-web.vercel.app` (no trailing slash) |
 | `ADMIN_ORIGIN` | your deployed `apps/admin` Vercel URL |

@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import { prisma } from "../lib/prisma";
 import { ApiError } from "../utils/ApiError";
 import { signAuthToken } from "../utils/jwt";
+import { issueRefreshToken } from "./refreshTokenService";
 import { issueOtp, verifyOtp } from "./otpService";
 import { sendOtpEmail, sendPasswordResetEmail } from "./emailService";
 import { generateReferralCode } from "../utils/referralCode";
@@ -12,7 +13,34 @@ import type {
   ResendOtpInput,
   ForgotPasswordInput,
   ResetPasswordInput,
+  UserRole,
 } from "@showtime/shared";
+
+interface UserRecord {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  emailVerified: boolean;
+  walletBalance: number;
+  referralCode: string;
+}
+
+// The same handful of fields get shaped for the client in four places
+// now (register/login/reset-password's session issuance, plus the
+// refresh endpoint) — factored out once rather than drifting into four
+// slightly-different-looking object literals over time.
+export function toPublicUser(user: UserRecord) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    emailVerified: user.emailVerified,
+    walletBalance: user.walletBalance,
+    referralCode: user.referralCode,
+  };
+}
 
 const SALT_ROUNDS = 10;
 
@@ -48,7 +76,7 @@ export async function registerUser(input: RegisterInput) {
   const otp = await issueOtp(user.id, "verify-email");
   void sendOtpEmail(user.email, user.name, otp);
 
-  return issueSession(user);
+  return issueSession(user, "CUSTOMER");
 }
 
 export async function loginUser(input: LoginInput, requireRole?: "ADMIN") {
@@ -62,7 +90,7 @@ export async function loginUser(input: LoginInput, requireRole?: "ADMIN") {
     throw ApiError.forbidden("This account does not have admin access");
   }
 
-  return issueSession(user);
+  return issueSession(user, requireRole ?? "CUSTOMER");
 }
 
 export async function verifyUserEmail(input: VerifyEmailInput): Promise<void> {
@@ -122,29 +150,16 @@ export async function resetPassword(input: ResetPasswordInput) {
   // making them separately log in with the new password) matches how
   // registration already behaves, and there's no security reason not to
   // — they just proved control of the account via the emailed code.
-  return issueSession(updated);
+  return issueSession(updated, "CUSTOMER");
 }
 
-function issueSession(user: {
-  id: string;
-  name: string;
-  email: string;
-  role: "CUSTOMER" | "ADMIN";
-  emailVerified: boolean;
-  walletBalance: number;
-  referralCode: string;
-}) {
-  const token = signAuthToken({ sub: user.id, role: user.role });
-  return {
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      emailVerified: user.emailVerified,
-      walletBalance: user.walletBalance,
-      referralCode: user.referralCode,
-    },
-  };
+// `audience` picks which session this is for — a user with the ADMIN
+// role can still hold a CUSTOMER session too (they're the same person,
+// two separate frontends/cookie jars) — see refreshTokenService.ts's
+// `RefreshToken.audience` for why this needs to be tracked all the way
+// through to the stored refresh token, not just the route that issued it.
+async function issueSession(user: UserRecord, audience: UserRole) {
+  const accessToken = signAuthToken({ sub: user.id, role: user.role });
+  const refreshToken = await issueRefreshToken(user.id, audience);
+  return { accessToken, refreshToken, user: toPublicUser(user) };
 }

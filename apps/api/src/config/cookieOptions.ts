@@ -16,11 +16,19 @@ import { env } from "./env";
 // `Secure`, so local dev keeps the original Lax/insecure combination.
 const isProduction = env.nodeEnv === "production";
 
-export function authCookieOptions(maxAgeMs: number) {
+// `path` narrows a cookie so the browser only attaches it to requests
+// under that prefix — used for refresh-token cookies (scoped to their
+// own auth route, e.g. "/api/auth") so the long-lived refresh token
+// isn't sent on every single request the way the short-lived access
+// token cookie is, only on the refresh/logout calls that actually need
+// it. Defaults to "/" (every request) for access-token cookies, which
+// is the previous, unscoped behavior.
+export function authCookieOptions(maxAgeMs: number, path: string = "/") {
   return {
     httpOnly: true,
     sameSite: (isProduction ? "none" : "lax") as "none" | "lax",
     secure: isProduction,
     maxAge: maxAgeMs,
+    path,
   };
 }

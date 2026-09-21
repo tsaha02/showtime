@@ -305,6 +305,36 @@ code path from "guest" to "rating" at all, not just a hidden button.
 
 ---
 
+## Auth: access + refresh tokens
+
+The JWT itself never touches client-side JS — it lives only in an
+`httpOnly` cookie, same as it always has in this project. What changed
+is the token lifetime model: a single 7-day token became a short-lived
+15-minute **access** token plus a long-lived, rotating **refresh**
+token (customer: 30d, admin: 24h — a separate opaque random value,
+hashed with SHA-256 before it's stored, in a `RefreshToken` table; only
+the hash is ever persisted). The refresh cookie is scoped via `path` to
+its own auth route (`/api/auth` or `/api/admin/auth`) so it's sent only
+on refresh/logout calls, not on every request the way the access cookie
+is.
+
+Rotation is single-use: exchanging a refresh token for a new pair
+(`POST /api/auth/refresh`) immediately revokes the one that was
+presented. If an already-revoked token is ever presented again — a
+signal the token may have been stolen — every other still-valid refresh
+token for that user is revoked too, not just the one request rejected.
+Both frontends' RTK Query base queries (`apps/web/src/store/api.ts`,
+`apps/admin/src/store/adminApi.ts`) catch a 401, silently call
+`/auth/refresh`, and retry the original request once before falling
+back to an actual logout — with a de-duped shared refresh call so
+several requests hitting a stale token at once don't race each other
+into triggering the reuse-detection above. See `INTERVIEW_NOTES.md`
+for the full story, including the bug this replaced (the admin
+session's cookie `maxAge` had silently drifted out of sync with its
+JWT's real expiry).
+
+---
+
 ## API reference
 
 Base URL: `http://localhost:4000`. All state-changing requests from a
@@ -314,9 +344,10 @@ independent of login — see Layer 1 above).
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| POST | `/api/auth/register` | — | `{name,email,password,confirmPassword,referralCode?}` → sets `st_customer_token` cookie; an optional referrer's code, silently ignored if invalid, never blocks registration |
+| POST | `/api/auth/register` | — | `{name,email,password,confirmPassword,referralCode?}` → sets `st_customer_token` (15min access) + `st_customer_refresh` (30d, path-scoped to `/api/auth`) cookies; an optional referrer's code, silently ignored if invalid, never blocks registration |
 | POST | `/api/auth/login` | — | `{email,password}` |
-| POST | `/api/auth/logout` | — | clears cookie |
+| POST | `/api/auth/refresh` | refresh cookie | rotates the refresh token (single-use — the old one is revoked) and issues a fresh access token; the frontend calls this automatically on any 401, not something a user triggers directly — see "Auth: access + refresh tokens" below |
+| POST | `/api/auth/logout` | — | revokes the refresh token server-side (not just clearing cookies) and clears both cookies |
 | GET | `/api/auth/me` | customer cookie | current user (includes `emailVerified`, `walletBalance`, `referralCode`) |
 | POST | `/api/auth/verify-email` | — | `{email,otp}` → 204, or 400 if wrong/expired |
 | POST | `/api/auth/resend-otp` | — | `{email}` → always 204 (doesn't reveal account state) |

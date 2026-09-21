@@ -12,7 +12,18 @@ export const env = {
   databaseUrl: required("DATABASE_URL"),
   redisUrl: process.env.REDIS_URL ?? "redis://localhost:6379",
   jwtSecret: required("JWT_SECRET"),
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "7d",
+  // This is the ACCESS token's lifetime, not "how long can you stay
+  // logged in" — that's governed separately by the refresh token
+  // (see refreshTokenService.ts's CUSTOMER_REFRESH_TTL_MS/
+  // ADMIN_REFRESH_TTL_MS), which silently renews this one in the
+  // background. Short on purpose: if an access token ever leaks (an XSS
+  // payload reading it from... nowhere, since it's httpOnly — but a
+  // logged request, a browser extension, a misconfigured proxy), a short
+  // window bounds how long it's useful for. Must parse via
+  // utils/duration.ts's `parseDurationMs` (e.g. "15m", "1h", "7d") —
+  // it's also fed directly into jsonwebtoken's `expiresIn`, which
+  // accepts the same format.
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "15m",
   webOrigin: process.env.WEB_ORIGIN ?? "http://localhost:5173",
   adminOrigin: process.env.ADMIN_ORIGIN ?? "http://localhost:5174",
   // Every one of these three is optional and degrades gracefully rather

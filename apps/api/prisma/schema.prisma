@@ -80,6 +80,32 @@ model User {
   walletTransactions WalletTransaction[]
   giftCardsPurchased GiftCard[]          @relation("GiftCardsPurchased")
   giftCardsRedeemed  GiftCard[]          @relation("GiftCardsRedeemed")
+  refreshTokens      RefreshToken[]
+}
+
+// Backs the access/refresh token rotation flow (see
+// services/refreshTokenService.ts). Only the SHA-256 hash of the actual
+// refresh token is ever stored — the raw value lives only in the
+// browser's httpOnly cookie — so a leaked database dump alone can't be
+// replayed as a valid session. `audience` distinguishes a customer-app
+// session from an admin-app session for the same underlying user row
+// (the two frontends use separate cookie names/paths already, but this
+// is the defense-in-depth check on the server side too). Rotation is
+// single-use: `rotateRefreshToken` marks the row `revoked` the moment
+// it's exchanged for a new pair, and a second attempt to use an
+// already-revoked token is treated as possible theft (see that
+// function's comment) rather than silently accepted.
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  audience  UserRole
+  revoked   Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId, audience])
 }
 
 // An immutable ledger of every wallet change — refunds (cancellation

@@ -801,3 +801,80 @@ inner client's defaults explicitly rather than inheriting them, because
   feature has something real to summarize immediately after a fresh
   `npx prisma db seed`, rather than only working after someone manually
   adds test reviews.
+
+---
+
+## 11. Access + refresh token rotation — and the bug this replaced
+
+**Where this started**: auditing the existing auth setup surfaced two
+findings. The good news: JWTs were already correctly `httpOnly`-cookie-
+only — no `localStorage` token storage anywhere, so nothing to fix
+there. The real gap: a single JWT, `JWT_EXPIRES_IN=7d`, with no refresh
+flow at all — expiry meant a hard, silent logout (any 401 just cleared
+the logged-in user in Redux, no retry). And a genuine latent bug
+alongside it: the admin cookie's `maxAge` was hardcoded to 24h while the
+JWT inside it was signed for 7d — the cookie physically evicted the
+token from the browser nearly 6 days before the JWT itself would have
+expired, two numbers that were supposed to represent the same thing
+drifting apart because nothing forced them to agree.
+
+**The redesign**: short-lived access token (15 min JWT, unchanged
+cookie mechanism) + a long-lived, rotating refresh token (a random
+opaque value, NOT a JWT — there's nothing to decode, it's just a lookup
+key into a new `RefreshToken` table, so a signature would add nothing).
+Only the refresh token's SHA-256 hash is ever stored; the raw value
+lives only in a second httpOnly cookie, scoped via `path` to its own
+`/api/auth` (or `/api/admin/auth`) route so it isn't sent on every
+request the way the access cookie is.
+
+**Rotation is single-use, with reuse detection** (`refreshTokenService.ts`):
+exchanging a refresh token for a new pair immediately revokes the one
+that was presented. If something tries to use an already-revoked token
+again, that's not just rejected — every other still-valid refresh token
+for that user+audience gets revoked too. The reasoning: a legitimate
+client that just rotated has the NEW token already, so a request
+carrying the OLD one again is either a harmless race (an accidental
+double-fire) or a sign the token was stolen and the thief and the real
+user are now racing each other. Since there's no way to tell those
+apart from the server's side, and the cost of guessing wrong is
+asymmetric (a false positive costs one extra login; a missed theft
+costs a session that silently persists forever), it treats every reuse
+as theft and kills every session for that audience. Verified live: a
+rotated-away token correctly 401s, and the token that replaced it gets
+revoked defensively in the same request, confirmed by inspecting
+`RefreshToken` rows directly after triggering it deliberately.
+
+**Fixing the maxAge-drift bug at the root, not just the symptom**: the
+access-token cookie's `maxAge` is now *derived from the same string*
+`jsonwebtoken` signs the token with (`ACCESS_TOKEN_TTL_MS = parseDurationMs(env.jwtExpiresIn)`
+in `utils/jwt.ts`), instead of being a separately hand-typed number that
+can silently drift from the JWT's real expiry the way the admin cookie
+did. One source of truth removes the whole class of bug, not just the
+one instance of it that got noticed.
+
+**Frontend side — a de-duped silent-retry, not just a new endpoint**:
+both `apps/web` and `apps/admin`'s RTK Query base queries now catch a
+401, POST `/auth/refresh` once, and retry the original request before
+falling back to logging the user out. The one subtlety: if several
+queries fire at once and all hit a stale access token (a common case —
+a page firing 3-4 parallel requests on mount), naively refreshing on
+each one would have the second and third calls try to use a refresh
+token the first one already rotated-and-revoked, incorrectly triggering
+the reuse-detection logic above and logging the user out for real. A
+module-scoped `refreshPromise` de-dupes concurrent 401s onto one shared
+refresh call. (A smaller, separate fix: `apps/admin`'s base query had
+*no* 401 handling at all before this — a token expiring mid-session
+during any admin mutation would just fail with no recovery and no
+visible explanation; it now has the same reauth logic as `apps/web`.)
+
+**A real TypeScript gotcha hit along the way**: the initial
+implementation chained `.then().finally()` directly on the refresh
+call's result to build the de-duping promise. `vite build`'s `tsc -b`
+step failed with `Property 'then' does not exist on type
+'MaybePromise<...>'` — RTK Query's base-query return type is
+`T | Promise<T>` (it can resolve synchronously), so the plain-`T` branch
+has no `.then`. Plain `tsc --noEmit` didn't catch this (a project-
+references/build-mode difference), so it only surfaced in the actual
+build step, not typecheck — worth remembering that `tsc -b` and
+`tsc --noEmit` aren't always going to agree. Fixed by wrapping the
+`await` in an async IIFE instead of chaining on the call directly.

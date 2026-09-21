@@ -10,6 +10,12 @@ import { ApiError } from "../utils/ApiError";
 // independent even though they share one Users table and one JWT scheme.
 export const CUSTOMER_COOKIE = "st_customer_token";
 export const ADMIN_COOKIE = "st_admin_token";
+// The refresh-token half of each session — see refreshTokenService.ts.
+// Separate cookie (not reused/overloaded on the access-token cookie
+// above) so it can carry a much longer maxAge and a narrower `path`
+// without changing anything about how the access cookie behaves.
+export const CUSTOMER_REFRESH_COOKIE = "st_customer_refresh";
+export const ADMIN_REFRESH_COOKIE = "st_admin_refresh";
 
 function attachUser(req: Request, cookieName: string) {
   const token = req.cookies?.[cookieName];
