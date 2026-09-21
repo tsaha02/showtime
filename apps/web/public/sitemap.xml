@@ -6,8 +6,13 @@
   can't stay accurate; generating those entries needs a small build- or
   request-time script that reads the current catalog from the API, which
   is real, scoped follow-up work rather than something to fake here with
-  a stale list of IDs. Replace https://your-domain.example with the
-  actual deployed domain before this is useful to a real crawler.
+  a stale list of IDs.
+
+  TODO (post-deploy, one-time): every https://your-domain.example below
+  is a placeholder — find-and-replace it with this app's real Vercel
+  production URL (see DEPLOYMENT.md) once you have it, then redeploy.
+  Until that's done, `robots.txt`'s `Sitemap:` line points a crawler at
+  a file that doesn't describe this deployment yet.
 -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>

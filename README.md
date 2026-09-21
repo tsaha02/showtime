@@ -355,6 +355,9 @@ independent of login — see Layer 1 above).
 | POST | `/api/ratings/:id/vote` | customer cookie | `{helpful:boolean}` → upserts the caller's vote, can't vote on your own review |
 | GET | `/api/waitlist` / POST `/api/waitlist` | — | `{movieId,email}` "notify me" signup for an unscheduled movie |
 | GET | `/api/offers` | — | browsable "deals wall" over the active/unexpired Coupon table |
+| GET | `/api/movies/:id/review-summary` | — | AI-generated 3-4 bullet summary of recent reviews (Groq, Redis-cached), `null` if fewer than 3 reviews or `GROQ_API_KEY` unset |
+| POST | `/api/ai/search` | — (rate-limited) | `{query}` free-text mood/vibe search over the bookable catalog — see "GenAI features" below |
+| POST | `/api/ai/chat` | — (optionally authenticated, rate-limited) | `{messages}` conversational booking assistant — read-only tools only, see "GenAI features" below |
 | POST | `/api/gift-cards/create-payment-intent` | — | `{value}` (₹100-10,000) → PaymentIntent, or the mocked fallback |
 | POST | `/api/gift-cards/purchase` | — (optionally authenticated) | `{value,recipientEmail,purchasedByEmail?,message?,paymentIntentId?}` → `{code,value}`; emails the code to the recipient |
 | POST | `/api/gift-cards/redeem` | customer cookie | `{code}` → credits the full value into the caller's wallet, one-shot (can't be redeemed twice) |
@@ -1035,6 +1038,63 @@ mirrors `/api/admin/movies`/`/api/admin/shows` the same way.
   left out of this pass specifically to keep this round's diff to "can
   you browse and book an event," not "every movie-only convenience
   feature also exists for events."
+
+---
+
+## GenAI features (Groq)
+
+Three read-only AI features, all built on one shared Groq client
+(`apps/api/src/services/aiService.ts`, env: `GROQ_API_KEY`, optional —
+every feature checks `isAiConfigured()` first and degrades gracefully to
+a "not configured" response rather than crashing, the same posture as
+this app's existing Stripe/OMDb/Resend integrations). Model:
+`openai/gpt-oss-120b` (see INTERVIEW_NOTES.md for why, and for the real
+bugs hit getting here).
+
+### Review summarizer
+
+`apps/api/src/services/reviewSummaryService.ts` — a movie's recent
+`Rating` comments (minimum 3, otherwise it returns null rather than
+summarizing a single opinion) go to Groq and come back as 3-4 short
+bullet points, cached in Redis keyed on `movieId` + review count (a
+cheap invalidation: any new review changes the count, so the cache key
+changes with it, no explicit invalidation logic needed). Exposed at
+`GET /api/movies/:id/review-summary`. On `MovieDetailPage.tsx` this
+renders as a small "✨ AI Summary" card with a disclosure caption, and
+renders nothing at all when there's too little review data to
+summarize.
+
+### Mood search — describe what you're in the mood for
+
+`apps/api/src/services/aiSearchService.ts` takes a free-text query
+("something light and funny for a Friday night") and hands Groq the
+whole bookable catalog directly in the prompt (`id|type|title|genre|
+description`, one compact line per title) rather than building a
+vector-embedding/pgvector pipeline — at this catalog's actual scale
+(dozens of titles), sending the whole thing inline is simpler and
+cheaper than standing up new embedding infrastructure for a search that
+runs occasionally. Exposed at `POST /api/ai/search`. Frontend:
+`apps/web/src/components/MoodSearch.tsx`, a card above "Now Showing" on
+`HomePage.tsx`, deliberately separate from the existing exact-match
+search bar rather than replacing it.
+
+### Conversational booking assistant
+
+`apps/api/src/services/assistantService.ts` is an agentic tool-use loop
+(OpenAI-style function calling against Groq) with four **read-only**
+tools: `search_catalog`, `get_showtimes`, `get_active_offers`,
+`get_wallet_balance`. The hard safety rule, enforced structurally and
+not just by prompting: the assistant has no tool that can write to
+`Booking`/`BookingSeat`/`PaymentIntent` — it can only recommend and hand
+off with a real markdown link (e.g. `[Book Inception](/shows/abc123/
+seats)`) into the existing, already-safe seat-hold → Stripe → confirm
+checkout flow. A person always clicks through and pays themselves; the
+model can never spend money, because it was never given a tool that
+could. Exposed at `POST /api/ai/chat`. Frontend:
+`apps/web/src/components/ChatWidget.tsx`, a lazy-loaded floating
+bottom-right FAB with an expandable chat panel, mounted in `App.tsx`,
+with a small hand-rolled `[label](/path)` + `**bold**` renderer (no
+markdown dependency) that turns links into real react-router `Link`s.
 
 ---
 

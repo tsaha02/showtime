@@ -56,10 +56,20 @@ async function main() {
       referralCode: generateReferralCode(),
     },
   });
-  await prisma.user.create({
+  const samUser = await prisma.user.create({
     data: {
       name: "Sam Sample",
       email: "sam@showtime.dev",
+      passwordHash: demoPasswordHash,
+      role: "CUSTOMER",
+      emailVerified: true,
+      referralCode: generateReferralCode(),
+    },
+  });
+  const priyaUser = await prisma.user.create({
+    data: {
+      name: "Priya Patel",
+      email: "priya@showtime.dev",
       passwordHash: demoPasswordHash,
       role: "CUSTOMER",
       emailVerified: true,
@@ -383,15 +393,34 @@ async function main() {
     })),
   });
 
-  // A seed rating too, so the movie listing already shows a non-zero
-  // average rating and review count.
-  await prisma.rating.create({
-    data: {
-      movieId: flagshipMovie.id,
-      userId: demoUser.id,
-      stars: 5,
-      comment: "Genuinely tense — the ending re-contextualizes the whole first act.",
-    },
+  // Seed ratings — three, from three different users, with genuinely
+  // mixed sentiment (not all 5-star) — so the movie listing shows a
+  // real average/count AND the AI review-summary feature
+  // (reviewSummaryService.ts, which needs at least 3 real comments to
+  // have enough signal to summarize) works immediately on a fresh
+  // seed, instead of only ever activating once real users happen to
+  // leave enough reviews on the same title.
+  await prisma.rating.createMany({
+    data: [
+      {
+        movieId: flagshipMovie.id,
+        userId: demoUser.id,
+        stars: 5,
+        comment: "Genuinely tense — the ending re-contextualizes the whole first act.",
+      },
+      {
+        movieId: flagshipMovie.id,
+        userId: samUser.id,
+        stars: 4,
+        comment: "Visually incredible, though the middle act dragged a bit for me.",
+      },
+      {
+        movieId: flagshipMovie.id,
+        userId: priyaUser.id,
+        stars: 3,
+        comment: "Great concept but I found it more confusing than clever on a first watch.",
+      },
+    ],
   });
 
   // --- Sample guest booking, so the README can quote a real reference
@@ -461,6 +490,7 @@ async function main() {
   console.log("Demo coupons:     WELCOME10 (10% off), FLAT50 (₹50 off, max 100 uses)");
   console.log("Demo food items:  7 snacks/drinks/combos");
   console.log(`Demo events:      ${events.length} (comedy/concert/theatre/sports/workshop), 2 sessions each`);
+  console.log(`AI features:      3 seeded reviews on ${flagshipMovie.title} so the AI summary works immediately`);
 }
 
 main()

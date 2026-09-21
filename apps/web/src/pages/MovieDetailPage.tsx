@@ -6,7 +6,6 @@ import {
   Typography,
   Rating,
   Chip,
-  CircularProgress,
   Alert,
   Card,
   CardContent,
@@ -25,6 +24,7 @@ import {
   IconButton,
   Avatar,
   Paper,
+  Skeleton,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import { MovieCard } from "../components/MovieCard";
@@ -39,6 +39,7 @@ import LocalActivityOutlinedIcon from "@mui/icons-material/LocalActivityOutlined
 import RateReviewOutlinedIcon from "@mui/icons-material/RateReviewOutlined";
 import RecommendOutlinedIcon from "@mui/icons-material/RecommendOutlined";
 import StarIcon from "@mui/icons-material/Star";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import {
   useGetMovieQuery,
   useGetMovieShowsQuery,
@@ -48,6 +49,7 @@ import {
   useJoinWaitlistMutation,
   useVoteRatingMutation,
   useGetSimilarMoviesQuery,
+  useGetReviewSummaryQuery,
 } from "../store/api";
 import { useAppSelector, useAppDispatch } from "../store/hooks";
 import { setSelectedCity } from "../store/slices/locationSlice";
@@ -75,6 +77,7 @@ export function MovieDetailPage() {
   const { data: movie, isLoading, isError, error } = useGetMovieQuery(id);
   useDocumentTitle(movie?.title ?? "Movie");
   const { data: similarMovies } = useGetSimilarMoviesQuery(id, { skip: !id });
+  const { data: reviewSummary } = useGetReviewSummaryQuery(id, { skip: !id });
   const { data: shows } = useGetMovieShowsQuery({ movieId: id, city: cityFilter ?? undefined });
   const [ratingsPage, setRatingsPage] = useState(1);
   const [shownRatings, setShownRatings] = useState<RatingDTO[]>([]);
@@ -179,8 +182,86 @@ export function MovieDetailPage() {
 
   if (isLoading) {
     return (
-      <Box display="flex" justifyContent="center" py={6}>
-        <CircularProgress />
+      <Box>
+        {/* Hero: poster + title/meta, mirroring the loaded layout's Grid split. */}
+        <Box
+          sx={{
+            position: "relative",
+            borderRadius: 3,
+            border: "1px solid",
+            borderColor: "divider",
+            p: { xs: 2.5, sm: 3, md: 4 },
+            mb: 4,
+            overflow: "hidden",
+          }}
+        >
+          <Grid container spacing={4}>
+            <Grid item xs={12} sm={5} md={4}>
+              <Skeleton
+                variant="rounded"
+                sx={{
+                  width: { xs: "60%", sm: "100%" },
+                  maxWidth: { xs: 260, sm: "none" },
+                  mx: { xs: "auto", sm: 0 },
+                  aspectRatio: "2 / 3",
+                  borderRadius: 2,
+                }}
+              />
+            </Grid>
+            <Grid item xs={12} sm={7} md={8}>
+              <Skeleton variant="text" width="70%" height={56} sx={{ mb: 1 }} />
+              <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+                <Skeleton variant="rounded" width={90} height={24} />
+                <Skeleton variant="rounded" width={70} height={24} />
+              </Stack>
+              <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2.5 }}>
+                <Skeleton variant="text" width={60} />
+                <Skeleton variant="rounded" width={130} height={32} />
+              </Stack>
+              <Skeleton variant="text" />
+              <Skeleton variant="text" />
+              <Skeleton variant="text" width="80%" />
+            </Grid>
+          </Grid>
+        </Box>
+
+        {/* Showtimes section header */}
+        <Skeleton variant="text" width={160} height={36} sx={{ mb: 2 }} />
+        <Grid container spacing={2}>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Grid item xs={12} sm={6} md={4} key={i}>
+              <Card sx={{ height: "100%" }}>
+                <CardContent>
+                  <Skeleton variant="text" width="60%" sx={{ mb: 1 }} />
+                  <Stack spacing={1}>
+                    <Skeleton variant="rounded" height={36} />
+                    <Skeleton variant="rounded" height={36} />
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+
+        <Divider sx={{ my: 4 }} />
+
+        {/* Ratings & reviews section */}
+        <Skeleton variant="text" width={220} height={36} sx={{ mb: 2 }} />
+        <Stack spacing={1.5}>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Paper key={i} variant="outlined" sx={{ p: 2 }}>
+              <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1 }}>
+                <Skeleton variant="circular" width={36} height={36} />
+                <Box sx={{ flex: 1 }}>
+                  <Skeleton variant="text" width="30%" />
+                  <Skeleton variant="text" width="20%" />
+                </Box>
+              </Stack>
+              <Skeleton variant="text" />
+              <Skeleton variant="text" width="70%" />
+            </Paper>
+          ))}
+        </Stack>
       </Box>
     );
   }
@@ -459,6 +540,42 @@ export function MovieDetailPage() {
                 </Button>
               </Stack>
             </Box>
+          </CardContent>
+        </Card>
+      )}
+
+      {reviewSummary && (
+        <Card
+          variant="outlined"
+          sx={{
+            mb: 3,
+            maxWidth: 480,
+            borderColor: (theme) => alpha(theme.palette.secondary.main, 0.35),
+            backgroundImage: (theme) =>
+              `linear-gradient(135deg, ${alpha(theme.palette.secondary.main, 0.08)}, transparent)`,
+          }}
+        >
+          <CardContent>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+              <Chip
+                icon={<AutoAwesomeIcon fontSize="small" />}
+                label="AI Summary"
+                size="small"
+                color="secondary"
+                variant="outlined"
+              />
+            </Stack>
+            <Stack spacing={0.75} sx={{ mb: 1 }}>
+              {reviewSummary.points.map((point, i) => (
+                <Typography key={i} variant="body2">
+                  • {point}
+                </Typography>
+              ))}
+            </Stack>
+            <Typography variant="caption" color="text.secondary">
+              AI-generated from {reviewSummary.basedOnCount} review
+              {reviewSummary.basedOnCount === 1 ? "" : "s"} — may not reflect every opinion.
+            </Typography>
           </CardContent>
         </Card>
       )}

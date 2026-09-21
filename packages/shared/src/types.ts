@@ -292,6 +292,23 @@ export type CreateGenericPaymentIntentResponseDTO =
   | { stripeConfigured: true; clientSecret: string; paymentIntentId: string; amount: number }
   | { stripeConfigured: false };
 
+export interface ReviewSummaryDTO {
+  points: string[];
+  basedOnCount: number;
+}
+
+export interface SemanticSearchResultDTO {
+  id: string;
+  type: "movie" | "event";
+  title: string;
+  reason: string;
+}
+
+export interface AssistantChatMessageDTO {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface WalletTransactionDTO {
   id: string;
   amount: number;

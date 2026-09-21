@@ -42,6 +42,7 @@ import { showToast } from "../store/slices/uiSlice";
 import { getErrorMessage } from "../lib/apiError";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { MovieCard } from "../components/MovieCard";
+import { MoodSearch } from "../components/MoodSearch";
 
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 const ALL = "__all__";
@@ -239,15 +240,23 @@ export function HomePage() {
         </Stack>
       </Box>
 
+      <MoodSearch />
+
       <Typography variant="h4" gutterBottom sx={{ mb: { xs: 2, sm: 3 } }}>
         Now Showing
       </Typography>
-      <Stack spacing={{ xs: 1.5, md: 2 }} sx={{ mb: 2 }}>
+      {/* One row on desktop, wrapping to two on mobile — kept to
+          `size="small"` throughout, same minimalism pass as MoodSearch
+          above, since a full-height search row plus a full-height
+          genre/city row was taking up more vertical space than this
+          filter bar actually needs. */}
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mb: 2 }}>
         <TextField
+          size="small"
           placeholder="Search movies by title…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          fullWidth
+          sx={{ flex: 2, minWidth: 0 }}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
@@ -256,14 +265,10 @@ export function HomePage() {
             ),
           }}
         />
-        {/* Genre + city stay side-by-side even on mobile (rather than
-            each taking a full-width row) so this filter bar doesn't push
-            the actual movie grid below the fold — three stacked
-            full-width rows was the specific "doesn't look good on
-            mobile" complaint this replaced. */}
-        <Stack direction="row" spacing={1.5}>
+        <Stack direction="row" spacing={1.5} sx={{ flex: { xs: 1, sm: 2 } }}>
           <TextField
             select
+            size="small"
             label="Genre"
             value={genre}
             onChange={(e) => setGenre(e.target.value)}
@@ -277,6 +282,7 @@ export function HomePage() {
             ))}
           </TextField>
           <Autocomplete
+            size="small"
             sx={{ flex: 1.4, minWidth: 0 }}
             options={indiaCities ?? []}
             value={city}

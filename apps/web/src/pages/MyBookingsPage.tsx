@@ -9,7 +9,7 @@ import {
   Stack,
   Button,
   Divider,
-  CircularProgress,
+  Skeleton,
   Alert,
   Accordion,
   AccordionSummary,
@@ -75,8 +75,28 @@ export function MyBookingsPage() {
 
   if (isLoading) {
     return (
-      <Box display="flex" justifyContent="center" py={6}>
-        <CircularProgress />
+      <Box>
+        <Skeleton variant="text" width={200} height={48} sx={{ mb: 2 }} />
+        <Stack spacing={2}>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent>
+                <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                  <Box sx={{ flex: 1 }}>
+                    <Skeleton variant="text" width="50%" height={32} />
+                    <Skeleton variant="text" width="70%" />
+                  </Box>
+                  <Skeleton variant="rounded" width={80} height={24} />
+                </Stack>
+                <Stack direction="row" spacing={1} sx={{ my: 1 }}>
+                  <Skeleton variant="rounded" width={70} height={24} />
+                  <Skeleton variant="rounded" width={70} height={24} />
+                </Stack>
+                <Skeleton variant="text" width="40%" />
+              </CardContent>
+            </Card>
+          ))}
+        </Stack>
       </Box>
     );
   }

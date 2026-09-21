@@ -7,6 +7,7 @@ import {
   StepLabel,
   Typography,
   CircularProgress,
+  Skeleton,
   Alert,
   Card,
   CardContent,
@@ -287,8 +288,40 @@ export function SeatMapPage() {
 
   if (isLoading) {
     return (
-      <Box display="flex" justifyContent="center" py={6}>
-        <CircularProgress />
+      <Box>
+        <Skeleton variant="text" width={260} height={32} />
+        <Skeleton variant="text" width={340} sx={{ mb: 3 }} />
+
+        {/* Stepper area */}
+        <Stack direction="row" spacing={2} sx={{ my: 4, px: 2 }} justifyContent="space-between">
+          {STEPS.map((label) => (
+            <Stack key={label} alignItems="center" spacing={1} sx={{ flex: 1 }}>
+              <Skeleton variant="circular" width={24} height={24} />
+              <Skeleton variant="text" width="60%" />
+            </Stack>
+          ))}
+        </Stack>
+
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={8}>
+            {/* Seat grid placeholder */}
+            <Skeleton variant="rounded" height={360} sx={{ borderRadius: 2 }} />
+          </Grid>
+          <Grid item xs={12} md={4}>
+            {/* Side summary panel */}
+            <Card>
+              <CardContent>
+                <Skeleton variant="text" width="50%" sx={{ mb: 1.5 }} />
+                <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+                  <Skeleton variant="rounded" width={48} height={28} />
+                  <Skeleton variant="rounded" width={48} height={28} />
+                  <Skeleton variant="rounded" width={48} height={28} />
+                </Stack>
+                <Skeleton variant="text" width="70%" height={32} />
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
       </Box>
     );
   }

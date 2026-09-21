@@ -85,6 +85,7 @@ in the same Render project. Render gives you connection strings for both
 | `RESEND_API_KEY` | same key you're already using locally |
 | `EMAIL_FROM` | same as local, or your verified Resend domain's address once you have one |
 | `STRIPE_SECRET_KEY` | same **test-mode** key you're already using locally — do not switch to a live key for a portfolio demo |
+| `GROQ_API_KEY` | same key you're already using locally — optional; powers the three GenAI features (review summarizer, mood search, booking assistant). Without it those endpoints degrade to a clean "not configured" response rather than the app failing to boot |
 | `PORT` | Render sets this automatically; the app already reads `process.env.PORT`, don't override it |
 
 ### First deploy — seed the production database once, manually

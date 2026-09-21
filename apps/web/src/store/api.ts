@@ -35,6 +35,9 @@ import type {
   PurchaseGiftCardInput,
   RedeemGiftCardInput,
   GiftCardPurchaseResponseDTO,
+  ReviewSummaryDTO,
+  SemanticSearchResultDTO,
+  AssistantChatMessageDTO,
 } from "@showtime/shared";
 import { getSessionId } from "../lib/sessionId";
 import { clearUser } from "./slices/authSlice";
@@ -317,6 +320,21 @@ export const api = createApi({
       query: () => "/donations/total",
       transformResponse: (res: { total: number }) => res.total,
     }),
+
+    // --- GenAI features (Groq-backed, gracefully degrade to null when
+    // AI isn't configured — see each service's comments on the API side) ---
+    getReviewSummary: builder.query<ReviewSummaryDTO | null, string>({
+      query: (movieId) => `/movies/${movieId}/review-summary`,
+      transformResponse: (res: { summary: ReviewSummaryDTO | null }) => res.summary,
+    }),
+    aiSearch: builder.mutation<SemanticSearchResultDTO[] | null, string>({
+      query: (query) => ({ url: "/ai/search", method: "POST", body: { query } }),
+      transformResponse: (res: { results: SemanticSearchResultDTO[] | null }) => res.results,
+    }),
+    chatWithAssistant: builder.mutation<string, AssistantChatMessageDTO[]>({
+      query: (messages) => ({ url: "/ai/chat", method: "POST", body: { messages } }),
+      transformResponse: (res: { reply: string }) => res.reply,
+    }),
   }),
 });
 
@@ -367,4 +385,7 @@ export const {
   useGetRecommendedMoviesQuery,
   useGetOffersQuery,
   useGetDonationsTotalQuery,
+  useGetReviewSummaryQuery,
+  useAiSearchMutation,
+  useChatWithAssistantMutation,
 } = api;

@@ -1,5 +1,5 @@
 import { useParams, Link as RouterLink } from "react-router-dom";
-import { Box, Grid, Typography, Chip, Stack, CircularProgress, Alert, Button, Divider } from "@mui/material";
+import { Box, Grid, Typography, Chip, Stack, Skeleton, Alert, Button, Divider } from "@mui/material";
 import StarIcon from "@mui/icons-material/Star";
 import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
 import { useGetDiscoverDetailQuery } from "../store/api";
@@ -15,8 +15,35 @@ export function DiscoverDetailPage() {
 
   if (isLoading) {
     return (
-      <Box display="flex" justifyContent="center" py={6}>
-        <CircularProgress />
+      <Box>
+        <Grid container spacing={4}>
+          <Grid item xs={12} sm={5} md={4}>
+            <Skeleton
+              variant="rounded"
+              sx={{
+                width: { xs: "60%", sm: "100%" },
+                maxWidth: { xs: 260, sm: "none" },
+                mx: { xs: "auto", sm: 0 },
+                aspectRatio: "2 / 3",
+                borderRadius: 2,
+              }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={7} md={8}>
+            <Skeleton variant="text" width="60%" height={48} />
+            <Stack direction="row" spacing={1} my={1}>
+              <Skeleton variant="rounded" width={60} height={24} />
+              <Skeleton variant="rounded" width={70} height={24} />
+              <Skeleton variant="rounded" width={90} height={24} />
+            </Stack>
+            <Skeleton variant="text" width="40%" sx={{ mb: 2 }} />
+            <Skeleton variant="text" />
+            <Skeleton variant="text" />
+            <Skeleton variant="text" width="70%" />
+            <Divider sx={{ my: 2 }} />
+            <Skeleton variant="rounded" width={140} height={40} />
+          </Grid>
+        </Grid>
       </Box>
     );
   }

@@ -1,6 +1,6 @@
 import { useEffect, Suspense, lazy } from "react";
 import { Routes, Route } from "react-router-dom";
-import { Container, Box, CircularProgress } from "@mui/material";
+import { Container, Box, Grid, Skeleton } from "@mui/material";
 import { NavBar } from "./components/NavBar";
 import { GlobalToast } from "./components/GlobalToast";
 import { Footer } from "./components/Footer";
@@ -48,10 +48,31 @@ const RefundPolicyPage = lazy(() =>
 const GiftCardsPage = lazy(() => import("./pages/GiftCardsPage").then((m) => ({ default: m.GiftCardsPage })));
 const OffersPage = lazy(() => import("./pages/OffersPage").then((m) => ({ default: m.OffersPage })));
 
+// Floating booking-assistant widget, mounted globally below — lazy-loaded
+// like every page above so its code (and the chat-bubble rendering logic)
+// isn't in the initial bundle for visitors who never open it.
+const ChatWidget = lazy(() => import("./components/ChatWidget").then((m) => ({ default: m.ChatWidget })));
+
+// Generic scaffold used as the Suspense fallback for every lazy-loaded
+// route — it can't know the real shape of whichever page is loading, so it
+// approximates a typical page (a heading, then a row of card-shaped
+// blocks) rather than a spinner that gets replaced by a completely
+// different layout. It renders inside the same <Container> the real pages
+// mount into (see below), so there's no padding/width jump when the real
+// page swaps in.
 function RouteFallback() {
   return (
-    <Box display="flex" justifyContent="center" py={8}>
-      <CircularProgress />
+    <Box>
+      <Skeleton variant="text" width={220} height={48} sx={{ mb: 3 }} />
+      <Grid container spacing={3}>
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Grid item xs={12} sm={6} md={4} key={i}>
+            <Skeleton variant="rounded" height={180} sx={{ borderRadius: 2, mb: 1 }} />
+            <Skeleton variant="text" width="70%" />
+            <Skeleton variant="text" width="40%" />
+          </Grid>
+        ))}
+      </Grid>
     </Box>
   );
 }
@@ -116,6 +137,9 @@ export default function App() {
       </Container>
       <Footer />
       <GlobalToast />
+      <Suspense fallback={null}>
+        <ChatWidget />
+      </Suspense>
     </>
   );
 }

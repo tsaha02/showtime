@@ -32,4 +32,13 @@ export const env = {
   // paymentService.ts) rather than blocking the app's centerpiece
   // feature on a third-party credential.
   stripeSecretKey: process.env.STRIPE_SECRET_KEY || undefined,
+  // Powers the three GenAI features (see aiService.ts) — the review
+  // summarizer, the "describe what you want" catalog search, and the
+  // booking assistant chat. Groq (an inference host for open models
+  // like Llama, via an OpenAI-compatible API) rather than a first-party
+  // model provider — same graceful-degradation posture as every other
+  // third-party credential above: without it, each feature's endpoint
+  // returns a clear "not configured" response rather than the app
+  // failing to boot or a customer-facing feature crashing.
+  groqApiKey: process.env.GROQ_API_KEY || undefined,
 };

@@ -10,6 +10,7 @@ import { toMovieDTO } from "../services/movieService";
 import { getSimilarMovies, getPersonalizedRecommendations } from "../services/recommendationService";
 import { searchExternalMovies, getExternalMovieDetails, getExternalMovieByTitle } from "../services/externalMovieService";
 import { CURATED_MOVIE_TITLES } from "../data/curatedMovieTitles";
+import { summarizeMovieReviews } from "../services/reviewSummaryService";
 
 const router = Router();
 
@@ -19,6 +20,12 @@ const router = Router();
 // bounded per-IP limit keeps one visitor from being able to exhaust it
 // for everyone else.
 const discoverRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 60 });
+
+// Tighter than discoverRateLimit — an LLM call is a real cost per
+// request (unlike OMDb, which is free), and the review-summary result
+// is cached anyway (see reviewSummaryService.ts), so a legitimate user
+// never needs to hit this more than once per movie per cache window.
+const aiRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20 });
 
 // Distinct genre/city lists for the frontend's filter dropdowns. Kept as
 // two tiny endpoints rather than baking them into the movie/theatre list
@@ -286,6 +293,20 @@ router.get(
       pageSize: RATINGS_PAGE_SIZE,
       starCounts,
     });
+  }),
+);
+
+// GenAI feature #1: "What people are saying" — an AI-generated summary
+// of a movie's own reviews, shown alongside the real star-rating
+// breakdown (never replacing it). Rate-limited like the other AI
+// endpoints (see aiRateLimit's comment) — each call is a real,
+// billed LLM request when the summary isn't already cached.
+router.get(
+  "/:id/review-summary",
+  aiRateLimit,
+  asyncHandler(async (req, res) => {
+    const summary = await summarizeMovieReviews(req.params.id);
+    res.json({ summary });
   }),
 );
 

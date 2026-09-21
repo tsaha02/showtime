@@ -672,3 +672,132 @@ necessary, not just that it was made):
    sets the cookie) while every subsequent authenticated request silently
    had no cookie attached — a bug that's easy to miss testing locally,
    since `localhost:5173` calling `localhost:4000` doesn't trigger it.
+
+---
+
+## 10. GenAI integration — provider swap and the bugs it actually surfaced
+
+Three read-only AI features were added (review summarizer, mood-based
+catalog search, a tool-using booking assistant — see README.md for what
+they do). The features themselves are the least interesting part of
+this round; the actual engineering happened in getting a reasoning-model
+provider to behave correctly inside an agentic loop, and it's worth
+being able to walk through each failure mode below, because every one of
+them is a real bug this project's own testing caught, not a hypothetical.
+
+### Provider lock-in isn't free: the Anthropic → Groq rewrite
+
+The assistant was originally built against Anthropic's Claude API — a
+reasonable default when the ask was simply "pick a provider." The user
+then said explicitly they already had a Groq API key and specifically
+did not want Anthropic. That wasn't a config change: Anthropic's tool-use
+wire format (content blocks, `tool_use`/`tool_result` blocks in the
+message array) and OpenAI-style function calling (a flat `tools` array,
+`message.tool_calls`, `role: "tool"` result messages, used by Groq's API)
+are structurally different, not just differently named. The rewrite
+touched every AI service file — `aiService.ts` (client + model config),
+`assistantService.ts` (the whole tool-use loop), `aiSearchService.ts`,
+and `reviewSummaryService.ts`. Worth stating plainly as the general
+lesson: picking an LLM provider is not a swappable implementation detail
+the way, say, an email provider behind a single `sendEmail()` call is —
+the request/response *shape* itself is part of the provider's contract,
+and a "just switch providers" ask is a real rewrite, not a config flag.
+
+### Model retirement: guessing a model name vs. asking the provider
+
+The first model tried, `llama-3.3-70b-versatile`, returned a 404
+`model_not_found` — it had been retired from Groq's hosted lineup since
+it was last used as a reference. Rather than guessing at a replacement
+name from memory (which would just as easily go stale again), the fix
+was to query Groq's own live `/v1/models` endpoint and pick a currently
+served model from that list — landed on `openai/gpt-oss-120b`. Worth
+naming as the general pattern: when an API's model catalog can change
+out from under you, ask the API what's actually available rather than
+hardcoding a name you read somewhere once.
+
+### Silent JSON truncation — a gotcha specific to reasoning models
+
+`gpt-oss-120b` is a "reasoning" model: it spends hidden chain-of-thought
+tokens before producing its visible answer, and those hidden tokens draw
+from the *same* `max_tokens` budget as the visible output. At the
+default reasoning effort, the model's internal reasoning was consuming
+enough of that shared budget that the visible JSON response got cut off
+mid-string — and it failed silently: valid-looking truncated JSON, no
+error thrown, `finish_reason: "length"` buried in a field nothing was
+checking. This is genuinely non-obvious if you haven't hit it before,
+because it looks exactly like a formatting bug in the prompt, not a
+budget problem. Fixed with `reasoning_effort: "low"` (spend less of the
+shared budget on invisible reasoning) plus a higher `max_tokens` ceiling
+across all three AI services. The transferable lesson: with a reasoning
+model, "response got cut off" and "response is malformed" can be the
+exact same symptom, and `finish_reason` is the field that tells you
+which one you're actually looking at.
+
+### Tool-call batching: the assistant not using the tool schema it was given
+
+The assistant sometimes called `get_showtimes` once per candidate movie
+instead of batching them into one call — burning through the
+tool-use-round-trip cap (`MAX_TOOL_ROUNDTRIPS`) on bookkeeping instead of
+useful work, and cutting a multi-movie query off mid-answer. The root
+cause was the tool's own schema: `get_showtimes` took a single `id`, so
+there was no way to *express* a batched call even when the model wanted
+to make one. Fixed three ways together: the schema changed from a single
+`id` to an `ids: string[]` array, the system prompt got an explicit
+instruction to batch showtime lookups into one call, and
+`MAX_TOOL_ROUNDTRIPS` was raised from 4 to 8 as a safety margin rather
+than the primary fix. Worth stating precisely: prompting alone couldn't
+have fixed this, because the schema made a batched call structurally
+impossible to emit — the fix had to change what the model *could* say,
+not just what it was told to prefer.
+
+### The 14-minute hang: an SDK default that was safe in isolation, dangerous in a loop
+
+The worst bug of the round. The model would sometimes pass `city: null`
+for an optional string filter (a reasonable way to express "no city
+filter"), but that parameter's JSON schema only declared `type:
+"string"` — `null` isn't a `string`, so Groq's strict schema validation
+rejected the tool call with a 400. On its own that's just a bug to fix.
+What made it a 14-minute hang was the interaction with two *separate*
+defaults, each individually fine: the Groq SDK client's default
+`maxRetries: 2` with backoff, and the assistant's own multi-round
+tool-use loop (up to `MAX_TOOL_ROUNDTRIPS` rounds). The 400 was
+deterministic — retrying it was never going to succeed — but the SDK
+retried it anyway, twice, with backoff, *inside* a loop that could itself
+run that failing call across multiple rounds, and each attempt carried
+close to the SDK's own 1-minute default timeout before giving up. The
+retries and the round-trips multiplied against each other rather than
+adding, and the whole thing compounded into a 14-minute hang before
+finally surfacing as an error. Fixed on three separate layers, each
+addressing a different part of the compounding, not just the trigger:
+1. Widened the parameter's schema to `type: ["string", "null"]` so the
+   call Groq was actually receiving stops being invalid in the first
+   place — the real root cause.
+2. Bounded the Groq client explicitly (`timeout: 20_000, maxRetries: 1`)
+   instead of trusting the SDK's own defaults, which are reasonable for
+   a single standalone call but not for a call that can be retried
+   from *inside* an outer retry loop of its own.
+3. Wrapped the whole tool-use loop in a try/catch that returns a
+   graceful degraded chat message instead of letting any remaining
+   failure surface as a raw 500 after however long it takes to exhaust.
+This is the clearest example in this project of a **compounding failure
+mode**: no single default here was wrong on its own — a 2-retry SDK
+default and a bounded agentic loop are both individually sane choices —
+but nesting one inside the other multiplied their worst cases together.
+The general lesson worth stating in an interview: when you put a
+retrying client inside your own retrying/looping logic, audit the
+inner client's defaults explicitly rather than inheriting them, because
+"safe in isolation" doesn't imply "safe nested."
+
+### Smaller fixes worth a one-line mention
+
+- **Currency**: the assistant initially answered in `$` despite this app
+  being INR throughout — fixed with an explicit system-prompt
+  instruction, not a code-level formatter, since the number itself was
+  already correct and only the symbol the model chose to type was wrong.
+- **Seed data**: the review summarizer needs at least 3 comments on a
+  movie to produce anything, so `prisma/seed.ts` was updated to seed a
+  third customer and replace one lone seeded rating with three, from
+  three different users with deliberately mixed sentiment — so the
+  feature has something real to summarize immediately after a fresh
+  `npx prisma db seed`, rather than only working after someone manually
+  adds test reviews.

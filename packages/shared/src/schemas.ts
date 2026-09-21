@@ -268,6 +268,29 @@ export const findBookingSchema = z.object({
 });
 export type FindBookingInput = z.infer<typeof findBookingSchema>;
 
+// --- GenAI features (review summaries, catalog search, the booking
+// assistant chat) — see apps/api/src/services/aiService.ts ---
+
+export const aiSearchSchema = z.object({
+  query: z.string().min(1).max(300),
+});
+export type AiSearchInput = z.infer<typeof aiSearchSchema>;
+
+export const assistantChatMessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string().min(1).max(2000),
+});
+export const assistantChatSchema = z.object({
+  // The full conversation so far, sent by the client each turn — this
+  // API is stateless (no server-side chat session/table), the same
+  // "conversation history lives in the request, not a session store"
+  // choice this app already makes for guest checkout. Capped at 20
+  // turns so a runaway client conversation can't balloon token cost
+  // per request indefinitely.
+  messages: z.array(assistantChatMessageSchema).min(1).max(20),
+});
+export type AssistantChatInput = z.infer<typeof assistantChatSchema>;
+
 // --- Ratings ---
 
 export const createRatingSchema = z.object({

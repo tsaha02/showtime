@@ -7,7 +7,7 @@ import {
   Grid,
   Chip,
   Stack,
-  CircularProgress,
+  Skeleton,
   Alert,
   IconButton,
   Tooltip,
@@ -46,9 +46,20 @@ export function OffersPage() {
       </Typography>
 
       {isLoading && (
-        <Box display="flex" justifyContent="center" py={6}>
-          <CircularProgress />
-        </Box>
+        <Grid container spacing={3}>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Grid item xs={12} sm={6} md={4} key={i}>
+              <Card sx={{ height: "100%" }}>
+                <CardContent sx={{ p: 3 }}>
+                  <Skeleton variant="text" width="40%" height={56} />
+                  <Skeleton variant="text" width="60%" sx={{ mb: 2 }} />
+                  <Skeleton variant="rounded" width={110} height={32} sx={{ mb: 1.5 }} />
+                  <Skeleton variant="text" width="50%" />
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
       )}
       {isError && (
         <Alert severity="error">

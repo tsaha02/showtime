@@ -5,7 +5,6 @@ import {
   Grid,
   Typography,
   Chip,
-  CircularProgress,
   Alert,
   Card,
   CardContent,
@@ -18,6 +17,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Skeleton,
 } from "@mui/material";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import { useGetEventQuery, useGetEventSessionsQuery, useGetIndiaCitiesQuery } from "../store/api";
@@ -75,8 +75,50 @@ export function EventDetailPage() {
 
   if (isLoading) {
     return (
-      <Box display="flex" justifyContent="center" py={6}>
-        <CircularProgress />
+      <Box>
+        <Grid container spacing={4}>
+          <Grid item xs={12} sm={5} md={4}>
+            <Skeleton
+              variant="rounded"
+              sx={{
+                width: { xs: "60%", sm: "100%" },
+                maxWidth: { xs: 260, sm: "none" },
+                mx: { xs: "auto", sm: 0 },
+                aspectRatio: "2 / 3",
+                borderRadius: 2,
+              }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={7} md={8}>
+            <Skeleton variant="text" width="60%" height={48} sx={{ mb: 1 }} />
+            <Stack direction="row" spacing={1} my={1}>
+              <Skeleton variant="rounded" width={90} height={24} />
+              <Skeleton variant="rounded" width={70} height={24} />
+            </Stack>
+            <Skeleton variant="text" />
+            <Skeleton variant="text" />
+            <Skeleton variant="text" width="80%" />
+          </Grid>
+        </Grid>
+
+        <Divider sx={{ my: 4 }} />
+
+        <Skeleton variant="text" width={140} height={36} sx={{ mb: 2 }} />
+        <Grid container spacing={2}>
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Grid item xs={12} sm={6} md={4} key={i}>
+              <Card sx={{ height: "100%" }}>
+                <CardContent>
+                  <Skeleton variant="text" width="60%" sx={{ mb: 1 }} />
+                  <Stack spacing={1}>
+                    <Skeleton variant="rounded" height={36} />
+                    <Skeleton variant="rounded" height={36} />
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
       </Box>
     );
   }

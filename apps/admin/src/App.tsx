@@ -1,6 +1,6 @@
 import { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { Box, CircularProgress } from "@mui/material";
+import { Box, Skeleton, Stack } from "@mui/material";
 import AdminLayout from "./components/AdminLayout";
 import AuthGate from "./components/AuthGate";
 import LoginPage from "./pages/LoginPage";
@@ -22,10 +22,18 @@ const FoodItemsPage = lazy(() => import("./pages/FoodItemsPage"));
 const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage"));
 const GiftCardsPage = lazy(() => import("./pages/GiftCardsPage"));
 
+// Admin pages are almost always tables/forms, so a generic heading +
+// full-width row scaffold reads better as a placeholder for "any admin
+// page" than a card grid (which fits the customer-facing app better).
 function RouteFallback() {
   return (
-    <Box display="flex" justifyContent="center" py={8}>
-      <CircularProgress />
+    <Box>
+      <Skeleton variant="text" width={200} height={44} sx={{ mb: 3 }} />
+      <Stack spacing={1.5}>
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton key={i} variant="rounded" height={48} />
+        ))}
+      </Stack>
     </Box>
   );
 }

@@ -10,6 +10,7 @@ import { notFoundHandler, errorHandler } from "./middleware/errorHandler";
 import authRoutes from "./routes/auth.routes";
 import movieRoutes from "./routes/movies.routes";
 import eventRoutes from "./routes/events.routes";
+import aiRoutes from "./routes/ai.routes";
 import theatreRoutes from "./routes/theatres.routes";
 import showRoutes from "./routes/shows.routes";
 import seatRoutes from "./routes/seats.routes";
@@ -74,6 +75,7 @@ export function createApp() {
   app.use("/api/auth", authRoutes);
   app.use("/api/movies", movieRoutes);
   app.use("/api/events", eventRoutes);
+  app.use("/api/ai", aiRoutes);
   app.use("/api/theatres", theatreRoutes);
   app.use("/api/shows", showRoutes); // /api/shows/:showId/seatmap
   app.use("/api/seats", seatRoutes); // /api/seats/hold, /api/seats/release

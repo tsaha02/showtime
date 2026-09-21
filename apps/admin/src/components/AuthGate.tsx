@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { CircularProgress, Box } from "@mui/material";
+import { Box, Skeleton, Stack } from "@mui/material";
 import { Navigate } from "react-router-dom";
 import { useMeQuery } from "../store/adminApi";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
@@ -24,9 +24,37 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }, [data, error, isLoading, isUninitialized, dispatch]);
 
   if (status === "idle" || status === "loading") {
+    // This wraps the whole admin app on first load, so match the real
+    // logged-in shell at a glance (see AdminLayout.tsx) — a sidebar-shaped
+    // block plus a content-area skeleton, not a spinner alone on a blank
+    // page.
     return (
-      <Box sx={{ display: "flex", justifyContent: "center", mt: 10 }}>
-        <CircularProgress />
+      <Box sx={{ display: "flex", minHeight: "100vh" }}>
+        <Box
+          sx={{
+            width: 232,
+            flexShrink: 0,
+            display: { xs: "none", md: "block" },
+            borderRight: "1px solid",
+            borderColor: "divider",
+            p: 2.5,
+          }}
+        >
+          <Skeleton variant="text" width="60%" height={32} sx={{ mb: 3 }} />
+          <Stack spacing={1.5}>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Skeleton key={i} variant="rounded" height={36} />
+            ))}
+          </Stack>
+        </Box>
+        <Box sx={{ flexGrow: 1, p: 3 }}>
+          <Skeleton variant="text" width={200} height={44} sx={{ mb: 3 }} />
+          <Stack spacing={1.5}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} variant="rounded" height={48} />
+            ))}
+          </Stack>
+        </Box>
       </Box>
     );
   }

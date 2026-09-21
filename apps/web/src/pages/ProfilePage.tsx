@@ -11,7 +11,7 @@ import {
   List,
   ListItem,
   ListItemText,
-  CircularProgress,
+  Skeleton,
   Alert,
   Grid,
 } from "@mui/material";
@@ -220,9 +220,17 @@ export function ProfilePage() {
               </Typography>
 
               {isLoading && (
-                <Box display="flex" justifyContent="center" py={3}>
-                  <CircularProgress size={24} />
-                </Box>
+                <List disablePadding>
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <ListItem key={i} divider disableGutters>
+                      <ListItemText
+                        primary={<Skeleton variant="text" width="50%" />}
+                        secondary={<Skeleton variant="text" width="35%" />}
+                      />
+                      <Skeleton variant="text" width={48} />
+                    </ListItem>
+                  ))}
+                </List>
               )}
               {isError && (
                 <Alert severity="error">
