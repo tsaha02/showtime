@@ -86,6 +86,8 @@ in the same Render project. Render gives you connection strings for both
 | `EMAIL_FROM` | same as local, or your verified Resend domain's address once you have one |
 | `STRIPE_SECRET_KEY` | same **test-mode** key you're already using locally — do not switch to a live key for a portfolio demo |
 | `GROQ_API_KEY` | same key you're already using locally — optional; powers the three GenAI features (review summarizer, mood search, booking assistant). Without it those endpoints degrade to a clean "not configured" response rather than the app failing to boot |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | same keys you're already using locally — optional; power the "you left mid-booking" Web Push notification. Generate a real pair once with `npx web-push generate-vapid-keys` (from `apps/api`) if you haven't already — they're a fixed identity for this deployment, not per-request secrets. Without them, the frontend's "enable notifications" prompt simply never appears |
+| `VAPID_SUBJECT` | a `mailto:` address or `https://` URL — defaults to `mailto:noreply@showtime.dev` if unset, doesn't need to be monitored |
 | `PORT` | Render sets this automatically; the app already reads `process.env.PORT`, don't override it |
 
 ### First deploy — seed the production database once, manually

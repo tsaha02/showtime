@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma";
 import { ApiError } from "../utils/ApiError";
 import { generateBookingReference } from "../utils/bookingRef";
 import { checkHoldsOwnedBy, releaseHolds } from "./seatHoldService";
+import { cancelWarning } from "./pushNotificationService";
 import { sendBookingTicketEmail } from "./emailService";
 import { isStripeConfigured, verifyPaymentIntent, refundPaymentIntent } from "./paymentService";
 import { applyCoupon, incrementCouponUsage } from "./couponService";
@@ -341,6 +342,10 @@ export async function confirmBooking(
   // status is checked first, but there's no reason to wait).
   await releaseHolds(showId, seatIds, ctx.sessionId);
   emitSeatBooked({ showId, seatIds });
+  // Checkout succeeded — whatever "you left this abandoned" nudge might
+  // have been scheduled for this (session, show) pair (see
+  // pushNotificationService.ts's trackHeldSeat) no longer applies.
+  cancelWarning(ctx.sessionId, showId);
 
   const dto: BookingDTO = {
     id: bookingId,

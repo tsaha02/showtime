@@ -157,7 +157,7 @@ export function EventDetailPage() {
             alt={event.title}
             sx={{
               width: { xs: "60%", sm: "100%" },
-              maxWidth: { xs: 260, sm: "none" },
+              maxWidth: { xs: 260, sm: 300 },
               display: "block",
               mx: { xs: "auto", sm: 0 },
               borderRadius: 2,
@@ -179,7 +179,7 @@ export function EventDetailPage() {
         </Grid>
       </Grid>
 
-      <Divider sx={{ my: 4 }} />
+      <Divider sx={{ my: 3 }} />
 
       <Stack
         direction={{ xs: "column", sm: "row" }}

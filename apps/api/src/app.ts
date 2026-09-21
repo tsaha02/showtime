@@ -23,6 +23,7 @@ import walletRoutes from "./routes/wallet.routes";
 import giftCardRoutes from "./routes/giftCards.routes";
 import offersRoutes from "./routes/offers.routes";
 import donationsRoutes from "./routes/donations.routes";
+import pushRoutes from "./routes/push.routes";
 
 import adminAuthRoutes from "./routes/admin/auth.routes";
 import adminMovieRoutes from "./routes/admin/movies.routes";
@@ -88,6 +89,7 @@ export function createApp() {
   app.use("/api/gift-cards", giftCardRoutes);
   app.use("/api/offers", offersRoutes);
   app.use("/api/donations", donationsRoutes);
+  app.use("/api/push", pushRoutes);
 
   app.use("/api/admin/auth", adminAuthRoutes);
   app.use("/api/admin/movies", adminMovieRoutes);

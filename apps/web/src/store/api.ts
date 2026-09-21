@@ -38,6 +38,8 @@ import type {
   ReviewSummaryDTO,
   SemanticSearchResultDTO,
   AssistantChatMessageDTO,
+  PushSubscribeInput,
+  PushUnsubscribeInput,
 } from "@showtime/shared";
 import { getSessionId } from "../lib/sessionId";
 import { clearUser } from "./slices/authSlice";
@@ -380,6 +382,19 @@ export const api = createApi({
       query: (messages) => ({ url: "/ai/chat", method: "POST", body: { messages } }),
       transformResponse: (res: { reply: string }) => res.reply,
     }),
+
+    // --- Push notifications (the "you left mid-booking" nudge — see
+    // apps/api's pushNotificationService.ts) ---
+    getVapidPublicKey: builder.query<string | null, void>({
+      query: () => "/push/vapid-public-key",
+      transformResponse: (res: { publicKey: string | null }) => res.publicKey,
+    }),
+    subscribePush: builder.mutation<void, PushSubscribeInput>({
+      query: (body) => ({ url: "/push/subscribe", method: "POST", body }),
+    }),
+    unsubscribePush: builder.mutation<void, PushUnsubscribeInput>({
+      query: (body) => ({ url: "/push/unsubscribe", method: "POST", body }),
+    }),
   }),
 });
 
@@ -433,4 +448,7 @@ export const {
   useGetReviewSummaryQuery,
   useAiSearchMutation,
   useChatWithAssistantMutation,
+  useLazyGetVapidPublicKeyQuery,
+  useSubscribePushMutation,
+  useUnsubscribePushMutation,
 } = api;

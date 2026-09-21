@@ -878,3 +878,90 @@ references/build-mode difference), so it only surfaced in the actual
 build step, not typecheck — worth remembering that `tsc -b` and
 `tsc --noEmit` aren't always going to agree. Fixed by wrapping the
 `await` in an async IIFE instead of chaining on the call directly.
+
+---
+
+## 12. Real Web Push, not just an in-app toast — and why that distinction mattered
+
+**The ask**: alert a user if they hold seats mid-booking and then
+leave. The interesting design decision here wasn't the feature itself,
+it was picking WHICH kind of "notification" that actually means —
+this app already has a real-time channel (Socket.io, used for seat-
+lifecycle events) and a toast system, either of which could show an
+in-app countdown/warning cheaply. But an in-app alert only reaches
+someone who still has a ShowTime tab open somewhere; the scenario
+described — someone who actually *left* — is precisely the case an
+in-app-only notification can't cover. That's what pushed this toward
+the browser Push API instead: a real OS-level notification, delivered
+via a service worker, that reaches the user even with the tab closed.
+Worth being able to articulate that tradeoff explicitly: Web Push is
+more moving parts (VAPID keys, a service worker, a permission prompt
+most users will decline) for real reach; an in-app toast is nearly free
+but only reaches someone already looking at the app — the right choice
+depends entirely on which failure case actually matters.
+
+**No job/cron infrastructure existed, and the fix stayed proportional
+to that**: this app has always been purely request-driven — no
+`node-cron`, no queue, nothing that runs on its own clock. Rather than
+bring in a scheduler for one feature, `pushNotificationService.ts` uses
+plain `setTimeout`, scoped per `(sessionId, showId)` pair, scheduled the
+moment a seat hold is acquired and cancelled the moment it's released
+or booked. This is explicitly a single-instance-only design — called
+out in the code and in `README.md` rather than silently assumed away —
+the same class of tradeoff Socket.io's own room state already makes for
+anything not routed through its Redis adapter. Reaching for Redis-backed
+scheduling (a sorted set, keyspace notifications) here would have been
+solving a scaling problem this deployment doesn't have yet, at the cost
+of real complexity today — a deliberate "don't build for load you don't
+have" call, not an oversight.
+
+**Rotation logic reused, not reinvented**: deciding "is this warning
+still relevant" at fire time reuses `checkHoldsOwnedBy` — the exact same
+ownership check `bookingService.ts` already runs immediately before
+charging a card. That was a deliberate choice over inventing a second,
+slightly-different notion of "still held": the booking flow's own
+definition of "do you still have this seat" is the one that actually
+matters, so the warning uses it verbatim rather than risk the two
+silently disagreeing later.
+
+**A genuinely subtle bug caught in Playwright verification, not code
+review**: the frontend's `registerServiceWorker()` initially returned as
+soon as `navigator.serviceWorker.register()` resolved. That looks
+correct — the registration succeeded — but `register()` resolves as
+soon as installation *starts*, before the worker is actually active, and
+`PushManager.subscribe()` requires an active worker. The result was a
+cryptic `"Failed to register a ServiceWorker... no active Service
+Worker"` error that only ever showed up when actually clicking through
+the real subscribe flow in a browser — `tsc`/`eslint` had nothing to say
+about it, since the code was entirely type-correct, just sequenced
+against the wrong lifecycle event. Fixed by awaiting
+`navigator.serviceWorker.ready` (which resolves once a worker for that
+scope is genuinely active) after `register()`, not instead of it. A good
+reminder that browser API *lifecycle* bugs — as opposed to type or logic
+bugs — are exactly the category real interactive testing catches and
+static analysis structurally cannot.
+
+**Also worth knowing**: Chrome deliberately disables the Push API
+inside incognito-style browser contexts (a real Chromium policy, not a
+Playwright quirk) — the automated verification for this feature had to
+use a persistent browser context instead of a fresh incognito one, or
+`subscribe()` failed with a misleadingly generic "permission denied"
+regardless of what `Notification.requestPermission()` actually
+returned.
+
+**A real product iteration, not a rebuild**: the first version gated
+the opt-in banner behind already having a seat held, on the seat map
+page only — reasonable at a glance (why ask before there's anything to
+protect?), but wrong for the actual goal. Permission has to be granted
+*before* an abandonment happens for a push to even be possible later —
+gating the ask behind the very moment it's meant to protect means
+anyone who abandons their first-ever booking attempt was never eligible
+to be warned in the first place; by the time they'd have a reason to
+grant permission, it's already too late for that specific booking. The
+fix moved the SAME banner component (`EnableNotificationsBanner.tsx`,
+renamed from `EnableSeatNotifications.tsx`) to mount once, site-wide, in
+`App.tsx` below the navbar — none of the actual push/subscribe/service-
+worker logic changed, only where and when the opt-in is offered. A good
+example of a requirement that sounds like a small tweak ("show it
+earlier") actually being about a timing dependency the first design
+missed, not a cosmetic preference.

@@ -189,9 +189,9 @@ export function HomePage() {
         sx={{
           position: "relative",
           textAlign: "center",
-          py: { xs: 4, sm: 6 },
+          py: { xs: 3, sm: 4 },
           px: 2,
-          mb: { xs: 3, sm: 4 },
+          mb: { xs: 2.5, sm: 3 },
           borderRadius: 3,
           overflow: "hidden",
           backgroundImage: (theme) =>
@@ -214,7 +214,7 @@ export function HomePage() {
         <Typography
           variant="body1"
           color="text.secondary"
-          sx={{ maxWidth: 560, mx: "auto", mb: { xs: 2.5, sm: 3 } }}
+          sx={{ maxWidth: 560, mx: "auto", mb: { xs: 2, sm: 2.5 } }}
         >
           Real showtimes, live seat selection, and instant e-tickets — across 10
           cities.

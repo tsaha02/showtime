@@ -298,7 +298,7 @@ export function MovieDetailPage() {
           border: "1px solid",
           borderColor: "divider",
           p: { xs: 2.5, sm: 3, md: 4 },
-          mb: 4,
+          mb: 3,
           overflow: "hidden",
           backgroundImage: (theme) =>
             `radial-gradient(ellipse 900px 500px at 0% 0%, ${alpha(theme.palette.primary.main, 0.12)}, transparent), radial-gradient(ellipse 700px 400px at 100% 100%, ${alpha(theme.palette.secondary.main, 0.08)}, transparent)`,
@@ -504,7 +504,7 @@ export function MovieDetailPage() {
         ))}
       </Grid>
 
-      <Divider sx={{ my: 4 }} />
+      <Divider sx={{ my: 3 }} />
 
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
         <RateReviewOutlinedIcon color="primary" />
@@ -708,7 +708,7 @@ export function MovieDetailPage() {
 
       {similarMovies && similarMovies.length > 0 && (
         <>
-          <Divider sx={{ my: 4 }} />
+          <Divider sx={{ my: 3 }} />
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
             <RecommendOutlinedIcon color="primary" />
             <Typography variant="h5">You might also like</Typography>

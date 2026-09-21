@@ -5,6 +5,7 @@ import { NavBar } from "./components/NavBar";
 import { GlobalToast } from "./components/GlobalToast";
 import { Footer } from "./components/Footer";
 import { RequireAuth } from "./components/RequireAuth";
+import { EnableNotificationsBanner } from "./components/EnableNotificationsBanner";
 import { useAppDispatch } from "./store/hooks";
 import { useGetMeQuery } from "./store/api";
 import { setUser, clearUser } from "./store/slices/authSlice";
@@ -92,7 +93,8 @@ export default function App() {
   return (
     <>
       <NavBar />
-      <Container maxWidth="lg" sx={{ py: 4 }}>
+      <EnableNotificationsBanner />
+      <Container maxWidth="lg" sx={{ pt: 3, pb: 4 }}>
         <Suspense fallback={<RouteFallback />}>
           <Routes>
             <Route path="/" element={<HomePage />} />

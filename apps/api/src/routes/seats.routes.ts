@@ -6,6 +6,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { ApiError } from "../utils/ApiError";
 import { prisma } from "../lib/prisma";
 import { acquireHold, releaseHold } from "../services/seatHoldService";
+import { trackHeldSeat, untrackHeldSeat } from "../services/pushNotificationService";
 import { emitSeatHeld, emitSeatReleased } from "../lib/socket";
 
 const router = Router();
@@ -31,6 +32,7 @@ router.post(
     }
 
     emitSeatHeld({ showId, seatId, holdExpiresAt: result.expiresAt.toISOString() });
+    trackHeldSeat(req.sessionId, showId, seatId);
     res.json({ holdExpiresAt: result.expiresAt.toISOString() });
   }),
 );
@@ -42,7 +44,10 @@ router.post(
   asyncHandler(async (req, res) => {
     const { showId, seatId } = req.body;
     const released = await releaseHold(showId, seatId, req.sessionId);
-    if (released) emitSeatReleased({ showId, seatId });
+    if (released) {
+      emitSeatReleased({ showId, seatId });
+      untrackHeldSeat(req.sessionId, showId, seatId);
+    }
     res.status(204).send();
   }),
 );

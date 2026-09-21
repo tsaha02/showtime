@@ -335,6 +335,55 @@ JWT's real expiry).
 
 ---
 
+## Push notifications: the "you left mid-booking" nudge
+
+A real browser Web Push notification — reaches the user even if they've
+closed the tab, unlike the Socket.io seat events elsewhere in this app,
+which only work while a ShowTime tab is actually open. The scenario:
+someone holds seats on the seat map, then abandons the flow (switches
+apps, closes the tab, just walks away) before their 5-minute hold
+expires — this nudges them back before those seats release.
+
+`apps/api/src/services/pushNotificationService.ts` schedules an
+in-memory timer the moment a subscribed session holds its first seat on
+a show, firing 90 seconds before the hold would actually expire — if
+the session still holds at least one seat at that point (re-checked
+against Redis, the same ownership check the booking flow itself uses
+right before charging a card), it sends a real push via `web-push` and
+the VAPID key pair in `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`. Booking or
+releasing all seats cancels the pending warning. Subscriptions are
+keyed by `sessionId` (the same client-generated UUID the seat-hold
+system already uses), not by logged-in user, so it works identically
+for guests. Optional and gracefully degrading like every other
+third-party credential in this app: without VAPID keys configured, the
+frontend's opt-in prompt simply never renders.
+
+On the frontend: `apps/web/public/service-worker.js` (plain JS, no
+build step — the browser runs it directly) receives the push and shows
+the OS notification; `EnableNotificationsBanner.tsx` is a small,
+dismissible, shown-once-per-browser banner mounted site-wide in
+`App.tsx` (below the navbar, above every route) rather than only
+appearing once someone's already mid-checkout — permission has to be
+granted BEFORE an abandonment happens for the eventual push to be
+possible at all, so asking only on the seat map would miss anyone who
+abandons their very first attempt. It still only asks for notification
+permission on a direct click on its own "Enable" button, never
+automatically on page load (browsers require a real user gesture for
+that prompt to count, and show a weakened prompt — most users
+reflexively deny — to sites that ask with no stated context).
+
+**A real, single-instance limitation, called out rather than silently
+assumed away**: the pending-warning timers live in the API process's
+memory, the same tradeoff Socket.io's room state already makes
+implicitly for anything not routed through its Redis adapter. A
+multi-instance deployment would need this moved to something shared
+(a Redis sorted set, polled or driven by keyspace notifications) so a
+warning scheduled on one instance still fires correctly if another
+instance ends up serving the eventual release/booking request. Out of
+scope for this portfolio's single-Render-instance deployment.
+
+---
+
 ## API reference
 
 Base URL: `http://localhost:4000`. All state-changing requests from a
@@ -374,6 +423,9 @@ independent of login — see Layer 1 above).
 | GET | `/api/shows/:showId/seatmap` | X-Session-Id | live seat statuses + per-category prices |
 | POST | `/api/seats/hold` | X-Session-Id | `{showId,seatId}` → 409 if taken |
 | POST | `/api/seats/release` | X-Session-Id | `{showId,seatId}` |
+| GET | `/api/push/vapid-public-key` | — | `{publicKey: string \| null}` — null means push isn't configured, frontend's opt-in prompt never renders |
+| POST | `/api/push/subscribe` | X-Session-Id | `{endpoint,keys:{p256dh,auth}}` — exactly `PushSubscription.toJSON()`'s shape |
+| POST | `/api/push/unsubscribe` | X-Session-Id | `{endpoint}` |
 | POST | `/api/bookings/preview-coupon` | X-Session-Id | `{code,showId,seatIds}` → discount preview, re-verified independently at confirm time |
 | POST | `/api/bookings/create-payment-intent` | X-Session-Id | `{showId,seatIds,couponCode?,foodItems?,useWallet?,roundUpDonation?}` → real Stripe PaymentIntent for `finalAmount` (via the single shared `computeBookingCharges`), or `{stripeConfigured:false}` if unconfigured **or** wallet covers the order in full |
 | POST | `/api/bookings/confirm` | X-Session-Id (+ optional cookie) | the transaction — see above; same optional `couponCode`/`foodItems`/`useWallet`/`roundUpDonation` |

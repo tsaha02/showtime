@@ -52,4 +52,23 @@ export const env = {
   // returns a clear "not configured" response rather than the app
   // failing to boot or a customer-facing feature crashing.
   groqApiKey: process.env.GROQ_API_KEY || undefined,
+  // Powers the "you left mid-booking" push notification (see
+  // pushNotificationService.ts) via the browser Push API — a real OS-
+  // level notification that reaches the user even if they've closed the
+  // tab, unlike the Socket.io events elsewhere in this app which only
+  // work while a ShowTime tab is actually open. Optional, same
+  // graceful-degradation posture as every other credential above:
+  // without a VAPID key pair, the feature simply never schedules or
+  // sends anything (the frontend's "enable notifications" prompt
+  // doesn't render either, once it asks the API for a public key and
+  // gets none back). Generate a pair once with
+  // `npx web-push generate-vapid-keys` — they're a fixed identity for
+  // this deployment, not per-request secrets to rotate.
+  vapidPublicKey: process.env.VAPID_PUBLIC_KEY || undefined,
+  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || undefined,
+  // Required by the Web Push protocol so a push service (Chrome's,
+  // Firefox's, etc.) has a way to contact the sender if something's
+  // wrong — a mailto: address or an https:// URL, doesn't need to be
+  // monitored for a portfolio deployment.
+  vapidSubject: process.env.VAPID_SUBJECT || "mailto:noreply@showtime.dev",
 };

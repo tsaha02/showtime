@@ -364,15 +364,15 @@ export function SeatMapPage() {
 
   return (
     <Box>
-      <Typography variant="h5" gutterBottom>
+      <Typography variant="h5" sx={{ mb: 0.25 }}>
         {data.show.movieTitle}
       </Typography>
-      <Typography color="text.secondary" gutterBottom>
+      <Typography color="text.secondary" variant="body2">
         {data.show.theatreName} · {data.show.screenName} ·{" "}
         {new Date(data.show.startTime).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
       </Typography>
 
-      <Stepper activeStep={activeStep} alternativeLabel={isMobile} sx={{ my: 4 }}>
+      <Stepper activeStep={activeStep} alternativeLabel={isMobile} sx={{ mt: 2, mb: 2.5 }}>
         {STEPS.map((label) => (
           <Step key={label}>
             <StepLabel>{isMobile ? label.split(" ")[0] : label}</StepLabel>
@@ -381,7 +381,7 @@ export function SeatMapPage() {
       </Stepper>
 
       {secondsLeft !== null && secondsLeft > 0 && activeStep < 3 && (
-        <Alert severity={secondsLeft <= 30 ? "warning" : "info"} sx={{ mb: 2 }}>
+        <Alert severity={secondsLeft <= 30 ? "warning" : "info"} sx={{ mb: 2, py: 0.5 }}>
           Seat hold expires in {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, "0")}
         </Alert>
       )}

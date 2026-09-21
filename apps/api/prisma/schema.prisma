@@ -83,6 +83,27 @@ model User {
   refreshTokens      RefreshToken[]
 }
 
+// A saved browser Push API subscription (see services/
+// pushNotificationService.ts). Keyed by `sessionId` — the same
+// client-generated UUID the seat-hold system already uses (see
+// seatHoldService.ts's comment), not by logged-in user — so the
+// "you left mid-booking" nudge works identically for guests and
+// logged-in customers, matching how the rest of the booking flow
+// already treats the two. `endpoint` is the actual push-service URL
+// the browser gave us (unique per browser/device registration); the
+// two key fields are the ones `web-push` needs to encrypt a payload
+// only that specific browser can decrypt.
+model PushSubscription {
+  id        String   @id @default(uuid())
+  sessionId String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+}
+
 // Backs the access/refresh token rotation flow (see
 // services/refreshTokenService.ts). Only the SHA-256 hash of the actual
 // refresh token is ever stored — the raw value lives only in the

@@ -305,3 +305,22 @@ export const voteRatingSchema = z.object({
   helpful: z.boolean(),
 });
 export type VoteRatingInput = z.infer<typeof voteRatingSchema>;
+
+// --- Push notifications ---
+
+// Mirrors the shape `PushSubscription.toJSON()` gives the browser —
+// `endpoint` plus the two encryption keys `web-push` needs server-side
+// to encrypt a payload only that specific browser can decrypt.
+export const pushSubscribeSchema = z.object({
+  endpoint: z.string().url(),
+  keys: z.object({
+    p256dh: z.string().min(1),
+    auth: z.string().min(1),
+  }),
+});
+export type PushSubscribeInput = z.infer<typeof pushSubscribeSchema>;
+
+export const pushUnsubscribeSchema = z.object({
+  endpoint: z.string().url(),
+});
+export type PushUnsubscribeInput = z.infer<typeof pushUnsubscribeSchema>;
