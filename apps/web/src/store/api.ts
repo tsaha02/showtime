@@ -297,8 +297,12 @@ export const api = createApi({
       query: (body) => ({ url: "/bookings/find", method: "POST", body }),
       transformResponse: (res: { booking: BookingDTO }) => res.booking,
     }),
-    cancelBooking: builder.mutation<void, string>({
-      query: (id) => ({ url: `/bookings/${id}/cancel`, method: "POST" }),
+    // `email` is only needed for a guest cancelling via "Find my
+    // booking" — see CancelBookingInput/bookings.routes.ts's
+    // `/:id/cancel`. A logged-in customer's own session cookie is
+    // proof enough, so MyBookingsPage never passes it.
+    cancelBooking: builder.mutation<void, { id: string; email?: string }>({
+      query: ({ id, email }) => ({ url: `/bookings/${id}/cancel`, method: "POST", body: email ? { email } : undefined }),
       invalidatesTags: ["MyBookings"],
     }),
 

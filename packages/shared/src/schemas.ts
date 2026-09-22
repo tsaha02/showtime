@@ -268,6 +268,15 @@ export const findBookingSchema = z.object({
 });
 export type FindBookingInput = z.infer<typeof findBookingSchema>;
 
+// `email` is only required when the caller isn't authenticated (a guest
+// cancelling via "Find my booking") — a logged-in customer cancelling
+// their own booking sends no body at all. See bookings.routes.ts's
+// `/:id/cancel` for how the two cases are told apart.
+export const cancelBookingSchema = z.object({
+  email: z.string().email().optional(),
+});
+export type CancelBookingInput = z.infer<typeof cancelBookingSchema>;
+
 // --- GenAI features (review summaries, catalog search, the booking
 // assistant chat) — see apps/api/src/services/aiService.ts ---
 

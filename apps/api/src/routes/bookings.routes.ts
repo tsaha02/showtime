@@ -1,5 +1,11 @@
 import { Router } from "express";
-import { confirmBookingSchema, findBookingSchema, createPaymentIntentSchema, previewCouponSchema } from "@showtime/shared";
+import {
+  confirmBookingSchema,
+  findBookingSchema,
+  createPaymentIntentSchema,
+  previewCouponSchema,
+  cancelBookingSchema,
+} from "@showtime/shared";
 import type { CreatePaymentIntentResponseDTO, CouponPreviewDTO } from "@showtime/shared";
 import { validateBody } from "../middleware/validate";
 import { optionalCustomerAuth, requireCustomerAuth, requireSessionId } from "../middleware/auth";
@@ -143,11 +149,22 @@ router.post(
   }),
 );
 
+// Optional auth, not required: a logged-in customer cancels with no
+// body (their session cookie is the proof), but a guest — who has no
+// account to be logged into — proves ownership the same way "Find my
+// booking" already does, by sending the email their booking was made
+// under. Exactly one of those two must check out, or cancelBooking()
+// itself rejects it (see its comment) — this route just decides which
+// kind of proof it's even looking at.
 router.post(
   "/:id/cancel",
-  requireCustomerAuth,
+  optionalCustomerAuth,
+  validateBody(cancelBookingSchema),
   asyncHandler(async (req, res) => {
-    await cancelBooking(req.params.id, { userId: req.user!.id });
+    if (!req.user && !req.body.email) {
+      throw ApiError.badRequest("Log in, or provide the email this booking was made under, to cancel it");
+    }
+    await cancelBooking(req.params.id, { userId: req.user?.id, guestEmail: req.body.email });
     res.status(204).send();
   }),
 );

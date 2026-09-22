@@ -60,7 +60,7 @@ export function MyBookingsPage() {
 
   const handleCancel = async (id: string) => {
     try {
-      await cancelBooking(id).unwrap();
+      await cancelBooking({ id }).unwrap();
       dispatch(
         showToast({ message: "Booking cancelled", severity: "success" }),
       );

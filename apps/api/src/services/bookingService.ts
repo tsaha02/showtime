@@ -388,13 +388,27 @@ export async function confirmBooking(
   return dto;
 }
 
-export async function cancelBooking(bookingId: string, ctx: { userId: string }): Promise<void> {
+// `ctx` carries proof of ownership one of two ways, mirroring how a
+// booking can be looked up in the first place (POST /bookings/mine for
+// a logged-in user, POST /bookings/find by reference+email for a
+// guest): `userId` for an account-holder cancelling their own booking,
+// or `guestEmail` for a guest proving it's theirs the same way "Find my
+// booking" already does. Exactly one should be set — the route handler
+// decides which based on whether the request is authenticated.
+export async function cancelBooking(
+  bookingId: string,
+  ctx: { userId?: string; guestEmail?: string },
+): Promise<void> {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
     include: { bookingSeats: true },
   });
   if (!booking) throw ApiError.notFound("Booking not found");
-  if (booking.userId !== ctx.userId) throw ApiError.forbidden("You can only cancel your own bookings");
+
+  const isOwner = ctx.userId && booking.userId === ctx.userId;
+  const isProvenGuest =
+    ctx.guestEmail && !booking.userId && booking.guestEmail?.toLowerCase() === ctx.guestEmail.toLowerCase();
+  if (!isOwner && !isProvenGuest) throw ApiError.forbidden("You can only cancel your own bookings");
   if (booking.status !== "CONFIRMED") throw ApiError.badRequest("Only confirmed bookings can be cancelled");
 
   const seatIds = booking.bookingSeats.map((s) => s.seatId);
@@ -414,16 +428,22 @@ export async function cancelBooking(bookingId: string, ctx: { userId: string }):
   // real charge exists, try to refund it there first; on any failure
   // (or if there was never a real charge — a mocked payment, since
   // Stripe wasn't configured), the cash portion is refunded as a wallet
-  // credit instead.
+  // credit instead — but ONLY for an account-holder: a guest has no
+  // User row and so no wallet to credit. A guest's Stripe refund (when
+  // there IS a real paymentIntentId) still goes through normally above;
+  // this fallback specifically only covers the mocked-payment/failed-
+  // refund case, which for a guest just means no automatic refund path
+  // exists — an honest limitation of guest checkout having no account
+  // to hold a credit in, not a bug.
   let cashRefundToWallet = 0;
   if (cashPaid > 0) {
     if (booking.paymentIntentId) {
       try {
         await refundPaymentIntent(booking.paymentIntentId);
       } catch {
-        cashRefundToWallet = cashPaid;
+        if (ctx.userId) cashRefundToWallet = cashPaid;
       }
-    } else {
+    } else if (ctx.userId) {
       cashRefundToWallet = cashPaid;
     }
   }
@@ -433,15 +453,20 @@ export async function cancelBooking(bookingId: string, ctx: { userId: string }):
   // (rather than a status column + partial index) is the seat-release
   // mechanism. The Booking row itself, with its immutable seatsSnapshot,
   // is kept as CANCELLED for history.
+  const refundUserId = ctx.userId;
   await prisma.$transaction(async (tx) => {
     await tx.bookingSeat.deleteMany({ where: { bookingId } });
     await tx.booking.update({ where: { id: bookingId }, data: { status: "CANCELLED" } });
 
-    if (booking.walletAmountUsed > 0) {
-      await adjustWallet(tx, ctx.userId, booking.walletAmountUsed, "CANCELLATION_REFUND", bookingId);
+    // `booking.walletAmountUsed` can only be non-zero on an account-
+    // holder's booking (guests can never pay from a wallet — see
+    // SeatMapPage's `useWallet` gate), so `refundUserId` being set here
+    // is guaranteed whenever this branch actually runs.
+    if (booking.walletAmountUsed > 0 && refundUserId) {
+      await adjustWallet(tx, refundUserId, booking.walletAmountUsed, "CANCELLATION_REFUND", bookingId);
     }
-    if (cashRefundToWallet > 0) {
-      await adjustWallet(tx, ctx.userId, cashRefundToWallet, "CANCELLATION_REFUND", bookingId);
+    if (cashRefundToWallet > 0 && refundUserId) {
+      await adjustWallet(tx, refundUserId, cashRefundToWallet, "CANCELLATION_REFUND", bookingId);
     }
   });
 

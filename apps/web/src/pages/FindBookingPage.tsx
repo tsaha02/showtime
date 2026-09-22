@@ -11,8 +11,15 @@ import {
   CardContent,
   Chip,
   Divider,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
 } from "@mui/material";
-import { useFindBookingMutation } from "../store/api";
+import { useFindBookingMutation, useCancelBookingMutation } from "../store/api";
+import { useAppDispatch } from "../store/hooks";
+import { showToast } from "../store/slices/uiSlice";
 import { getErrorMessage } from "../lib/apiError";
 import { TicketQRCode } from "../components/TicketQRCode";
 import { downloadTicketPdf } from "../lib/downloadTicketPdf";
@@ -24,6 +31,14 @@ export function FindBookingPage() {
   const [email, setEmail] = useState("");
   const [findBooking, { data: booking, isLoading, error, isSuccess }] =
     useFindBookingMutation();
+  const [cancelBooking, { isLoading: isCancelling }] = useCancelBookingMutation();
+  const dispatch = useAppDispatch();
+  // A guest has no session to re-authenticate a cancel with, so this
+  // page proves ownership the same way it just proved it to LOOK the
+  // booking up — the email still sitting in the form field above. A
+  // dialog gates it the same way MyBookingsPage's does: real seats,
+  // real money, no accidental misclick.
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
   const ticketRef = useRef<HTMLDivElement>(null);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -35,6 +50,22 @@ export function FindBookingPage() {
       }).unwrap();
     } catch {
       // error surfaced below
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!booking) return;
+    try {
+      await cancelBooking({ id: booking.id, email: email.trim() }).unwrap();
+      dispatch(showToast({ message: "Booking cancelled", severity: "success" }));
+      // Re-run the same lookup so the card below reflects the real,
+      // now-CANCELLED status instead of the stale CONFIRMED response
+      // still sitting in the mutation's cache.
+      await findBooking({ reference: reference.trim(), email: email.trim() }).unwrap();
+    } catch (err) {
+      dispatch(showToast({ message: getErrorMessage(err as any), severity: "error" }));
+    } finally {
+      setConfirmCancelOpen(false);
     }
   };
 
@@ -138,10 +169,33 @@ export function FindBookingPage() {
               >
                 Download PDF
               </Button>
+              <Button
+                size="small"
+                color="error"
+                disabled={isCancelling}
+                onClick={() => setConfirmCancelOpen(true)}
+              >
+                Cancel booking
+              </Button>
             </Stack>
           )}
         </Stack>
       )}
+
+      <Dialog open={confirmCancelOpen} onClose={() => setConfirmCancelOpen(false)}>
+        <DialogTitle>Cancel this booking?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This frees your seats back up for anyone else to book — it can't be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmCancelOpen(false)}>Keep booking</Button>
+          <Button color="error" variant="contained" disabled={isCancelling} onClick={handleCancel}>
+            {isCancelling ? "Cancelling…" : "Cancel booking"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
