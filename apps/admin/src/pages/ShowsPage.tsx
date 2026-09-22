@@ -158,7 +158,11 @@ export default function ShowsPage() {
             )}
             {shows?.map((show) => (
               <TableRow key={show.id}>
-                <TableCell>{show.movie.title}</TableCell>
+                {/* This page is movies-only — the API already filters to
+                    `kind: "MOVIE"` — but `?.` here costs nothing and stops
+                    a future regression of the same class (an EVENT row
+                    slipping through) from blanking the whole page again. */}
+                <TableCell>{show.movie?.title ?? "—"}</TableCell>
                 <TableCell>
                   {show.screen.theatre.name} / {show.screen.name}
                 </TableCell>

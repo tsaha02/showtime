@@ -17,12 +17,20 @@ import {
   useTheme,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
+import { motion } from "framer-motion";
 import { Link as RouterLink, useNavigate, useLocation } from "react-router-dom";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { useLogoutMutation } from "../store/api";
 import { clearUser } from "../store/slices/authSlice";
 import { showToast } from "../store/slices/uiSlice";
 import { BrandLogo } from "./BrandLogo";
+import { ctaTapProps, usePrefersReducedMotion } from "../lib/motion";
+
+// Cast back to `typeof Button` — `motion(Button)` on its own drops MUI's
+// polymorphic `component` prop (used below to render this button as a
+// RouterLink) from its generated type, even though it works fine at
+// runtime.
+const MotionButton = motion.create(Button) as typeof Button;
 
 const NAV_LINKS = [
   { to: "/search-movies", label: "Search Movies" },
@@ -41,6 +49,7 @@ export function NavBar() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const handleLogout = async () => {
     await logout();
@@ -107,9 +116,15 @@ export function NavBar() {
                   <Button component={RouterLink} to="/login" color="inherit">
                     Login
                   </Button>
-                  <Button component={RouterLink} to="/register" variant="contained" color="primary">
+                  <MotionButton
+                    component={RouterLink}
+                    to="/register"
+                    variant="contained"
+                    color="primary"
+                    {...ctaTapProps(prefersReducedMotion)}
+                  >
                     Sign Up
-                  </Button>
+                  </MotionButton>
                 </>
               )}
             </>
@@ -157,9 +172,17 @@ export function NavBar() {
                 <Button component={RouterLink} to="/login" variant="outlined" onClick={closeDrawer} fullWidth>
                   Login
                 </Button>
-                <Button component={RouterLink} to="/register" variant="contained" color="primary" onClick={closeDrawer} fullWidth>
+                <MotionButton
+                  component={RouterLink}
+                  to="/register"
+                  variant="contained"
+                  color="primary"
+                  onClick={closeDrawer}
+                  fullWidth
+                  {...ctaTapProps(prefersReducedMotion)}
+                >
                   Sign Up
-                </Button>
+                </MotionButton>
               </Stack>
             )}
           </Box>

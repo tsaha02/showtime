@@ -2,8 +2,12 @@ import { useEffect, useState } from "react";
 import { Alert, Chip, IconButton, Stack, Button, Typography, Container } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import NotificationsActiveOutlinedIcon from "@mui/icons-material/NotificationsActiveOutlined";
+import { motion } from "framer-motion";
 import { useLazyGetVapidPublicKeyQuery, useSubscribePushMutation } from "../store/api";
 import { isPushSupported, registerServiceWorker, urlBase64ToUint8Array } from "../lib/pushNotifications";
+import { ctaTapProps, usePrefersReducedMotion } from "../lib/motion";
+
+const MotionButton = motion.create(Button);
 
 const DISMISSED_KEY = "st_push_prompt_dismissed";
 
@@ -46,6 +50,7 @@ export function EnableNotificationsBanner() {
   const [vapidKey, setVapidKey] = useState<string | null>(null);
   const [fetchVapidKey] = useLazyGetVapidPublicKeyQuery();
   const [subscribePush] = useSubscribePushMutation();
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const supported = isPushSupported();
   const permission = supported ? Notification.permission : "denied";
@@ -125,9 +130,15 @@ export function EnableNotificationsBanner() {
             Enable notifications and we'll remind you if you ever leave a booking unfinished — so you don't
             lose your seats without knowing.
           </Typography>
-          <Button size="small" variant="outlined" color="secondary" onClick={handleEnable}>
+          <MotionButton
+            size="small"
+            variant="outlined"
+            color="secondary"
+            onClick={handleEnable}
+            {...ctaTapProps(prefersReducedMotion)}
+          >
             Enable
-          </Button>
+          </MotionButton>
         </Stack>
       </Alert>
     </Container>

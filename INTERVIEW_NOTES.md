@@ -965,3 +965,79 @@ worker logic changed, only where and when the opt-in is offered. A good
 example of a requirement that sounds like a small tweak ("show it
 earlier") actually being about a timing dependency the first design
 missed, not a cosmetic preference.
+
+---
+
+## 13. Four real bugs a UI/UX pass surfaced
+
+Not everything from this round was visual polish — chasing "the app
+feels unpolished" surfaced several genuine functional bugs along the way,
+worth separating from the motion/theme work above.
+
+**The admin Shows page crashed blank white whenever an event show
+existed.** Root cause: the `Show` table is shared between movies and
+events (a `kind: "MOVIE" | "EVENT"` discriminator), and the admin
+Shows list query (`apps/api/src/routes/admin/shows.routes.ts`) never
+got updated to filter on it when the Events feature shipped — an EVENT
+row came back with `movie: null`, and `ShowsPage.tsx` rendered
+`show.movie.title` unconditionally, throwing with no error boundary to
+catch it. The sibling Event Sessions route already filtered the other
+way (`kind: "EVENT"`) — this one just never got the matching fix. Two
+layers: the real fix (scope the query to `kind: "MOVIE"`), plus a
+defensive `show.movie?.title ?? "—"` on the frontend that costs nothing
+and stops a future regression of the exact same class from blanking the
+page again.
+
+**Abandoning a seat hold mid-selection left it locked for the full
+5-minute TTL, not just until the user left.** `SeatMapPage`'s unmount
+cleanup only reset local Redux state — it never called the actual
+`POST /api/seats/release` for whatever was still held. Someone who held
+seats, then clicked Home instead of finishing checkout, kept those
+seats locked away from every other customer for however long was left
+on the TTL, for no reason once they'd clearly moved on. Fixed by
+tracking currently-held seat ids in a ref (not state — the cleanup
+effect is deliberately registered once with empty deps, so it doesn't
+re-fire on every seat selection) and releasing each of them, server-
+side, in the unmount cleanup. A successful booking already empties the
+held-seats list via `clearBookingFlow()` before this ever runs, so it
+can't accidentally release seats that were just paid for.
+
+**Client-side navigation never reset scroll position.** Unlike a
+traditional multi-page site, React Router has no reason to reset scroll
+on navigation — no real page load happens. Clicking from a movie
+scrolled deep into the reviews straight to a different page used to
+land you wherever that scroll position happened to already be, not the
+top of the new page. Fixed with a `useEffect` keyed on
+`location.pathname` (not the full `location` object) inside the
+route-transition component — narrow enough that an in-page filter
+change (Home's search/genre/city) doesn't yank scroll back to the top
+while someone's still looking at results below.
+
+**The movie/event detail pages buried the actual booking action below
+a huge poster and a full synopsis.** The poster column and its
+unbounded-width image, plus a full multi-paragraph description, pushed
+Showtimes — the one thing anyone's actually on the page to do — well
+below the fold. Fixed by shrinking the poster's grid column and capping
+its max width, and collapsing the description to 3 lines
+(`-webkit-line-clamp`) behind a "Read more" toggle. The same
+insight — the poster is a supporting visual, not the point of a
+*booking* flow — also drove a companion fix: the showtime/session
+picker itself used to be a single `<Button>` whose whole label was one
+long concatenated string ("Wed, Sep 23, 03:56 AM · Screen 1 · 3D ·
+Hindi") with no visual hierarchy. Extracted into a shared
+`ShowtimeSlot.tsx` component (used by both the movie and event detail
+pages) that gives the TIME real typographic weight — the one thing
+someone's actually choosing between — and demotes date/screen to a
+caption with format/language as small pill chips, the same hierarchy a
+real ticketing site's time picker uses.
+
+**A fifth, smaller one from the same round**: the movie/event card
+grids (Home's "Now Showing," Events, "You might also like," search
+results) were capped at 5-per-row on desktop everywhere — the exact
+same `xs={6} sm={4} md={3} lg={2.4}` breakpoint set, copy-pasted across
+five different pages. Bumped to `xs={6} sm={3} md={2.4} lg={2}`
+(6-per-row on desktop, 4 on tablet) everywhere that pattern appeared —
+a one-line-per-file change, but worth noting specifically because it
+was the same breakpoint tuple duplicated five times: fixing it meant
+finding and updating every occurrence consistently, not just the one
+page someone happened to be looking at.

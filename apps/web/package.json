@@ -19,6 +19,7 @@
     "@showtime/shared": "*",
     "@stripe/react-stripe-js": "^6.9.0",
     "@stripe/stripe-js": "^9.15.0",
+    "framer-motion": "^13.4.1",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "qrcode.react": "^4.2.0",

@@ -125,7 +125,7 @@ function MovieResultsGrid({
     return (
       <Grid container spacing={{ xs: 2, sm: 3 }}>
         {Array.from({ length: 6 }).map((_, i) => (
-          <Grid item xs={6} sm={4} md={3} lg={2.4} key={i}>
+          <Grid item xs={6} sm={3} md={2.4} lg={2} key={i}>
             <Skeleton variant="rounded" height={280} sx={{ borderRadius: 3 }} />
             <Skeleton variant="text" sx={{ mt: 1 }} />
           </Grid>
@@ -143,7 +143,7 @@ function MovieResultsGrid({
       {movies?.map((movie) => {
         const imdbRating = "imdbRating" in movie ? movie.imdbRating : null;
         return (
-          <Grid item xs={6} sm={4} md={3} lg={2.4} key={movie.externalId}>
+          <Grid item xs={6} sm={3} md={2.4} lg={2} key={movie.externalId}>
             <Card
               sx={{
                 height: "100%",

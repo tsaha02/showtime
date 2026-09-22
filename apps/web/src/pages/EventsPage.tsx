@@ -124,7 +124,7 @@ export function EventsPage() {
       <Grid container spacing={{ xs: 2, sm: 3 }}>
         {isLoading &&
           Array.from({ length: 6 }).map((_, i) => (
-            <Grid item xs={6} sm={4} md={3} lg={2.4} key={i}>
+            <Grid item xs={6} sm={3} md={2.4} lg={2} key={i}>
               <Skeleton
                 variant="rounded"
                 height={280}
@@ -135,7 +135,7 @@ export function EventsPage() {
             </Grid>
           ))}
         {events?.map((event) => (
-          <Grid item xs={6} sm={4} md={3} lg={2.4} key={event.id}>
+          <Grid item xs={6} sm={3} md={2.4} lg={2} key={event.id}>
             <EventCard event={event} />
           </Grid>
         ))}

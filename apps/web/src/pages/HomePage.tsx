@@ -21,11 +21,6 @@ import SearchIcon from "@mui/icons-material/Search";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import MyLocationIcon from "@mui/icons-material/MyLocation";
 import MovieFilterIcon from "@mui/icons-material/MovieFilter";
-import EventSeatIcon from "@mui/icons-material/EventSeat";
-import CreditScoreIcon from "@mui/icons-material/CreditScore";
-import ApartmentIcon from "@mui/icons-material/Apartment";
-import QrCode2Icon from "@mui/icons-material/QrCode2";
-import { alpha } from "@mui/material/styles";
 import {
   useGetMoviesQuery,
   useGetGenresQuery,
@@ -40,19 +35,15 @@ import { useAppDispatch, useAppSelector } from "../store/hooks";
 import { setSelectedCity } from "../store/slices/locationSlice";
 import { showToast } from "../store/slices/uiSlice";
 import { getErrorMessage } from "../lib/apiError";
+import { motion } from "framer-motion";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { MovieCard } from "../components/MovieCard";
 import { MoodSearch } from "../components/MoodSearch";
+import { HeroBanner } from "../components/HeroBanner";
+import { fadeInUpSmall, usePrefersReducedMotion, viewportFadeInProps } from "../lib/motion";
 
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 const ALL = "__all__";
-
-const TRUST_POINTS = [
-  { icon: EventSeatIcon, label: "Live seat selection" },
-  { icon: CreditScoreIcon, label: "Real Stripe payments (test mode)" },
-  { icon: ApartmentIcon, label: "10 cities, 20+ theatres" },
-  { icon: QrCode2Icon, label: "Instant e-tickets" },
-];
 
 export function HomePage() {
   useDocumentTitle("Movie Tickets Online");
@@ -66,6 +57,7 @@ export function HomePage() {
   const city = useAppSelector((s) => s.location.city);
   const setCity = (value: string | null) => dispatch(setSelectedCity(value));
   const [locating, setLocating] = useState(false);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const { data: genres } = useGetGenresQuery();
   // `serviceableCities` (from /theatres/cities) is the small list of cities
@@ -185,66 +177,15 @@ export function HomePage() {
 
   return (
     <Box>
-      <Box
-        sx={{
-          position: "relative",
-          textAlign: "center",
-          py: { xs: 3, sm: 4 },
-          px: 2,
-          mb: { xs: 2.5, sm: 3 },
-          borderRadius: 3,
-          overflow: "hidden",
-          backgroundImage: (theme) =>
-            `radial-gradient(ellipse 900px 400px at 50% 0%, ${alpha(theme.palette.primary.main, 0.14)}, transparent), radial-gradient(ellipse 700px 400px at 100% 100%, ${alpha(theme.palette.secondary.main, 0.08)}, transparent)`,
-          border: "1px solid",
-          borderColor: "divider",
-        }}
-      >
-        <Typography
-          variant="h3"
-          fontWeight={800}
-          sx={{ fontSize: { xs: "1.9rem", sm: "2.6rem" } }}
-          gutterBottom
-        >
-          Book your next show in{" "}
-          <Box component="span" sx={{ color: "secondary.main" }}>
-            seconds
-          </Box>
-        </Typography>
-        <Typography
-          variant="body1"
-          color="text.secondary"
-          sx={{ maxWidth: 560, mx: "auto", mb: { xs: 2, sm: 2.5 } }}
-        >
-          Real showtimes, live seat selection, and instant e-tickets — across 10
-          cities.
-        </Typography>
-        <Stack
-          direction="row"
-          spacing={{ xs: 1, sm: 1.5 }}
-          justifyContent="center"
-          flexWrap="wrap"
-          useFlexGap
-          sx={{ rowGap: 1 }}
-        >
-          {TRUST_POINTS.map(({ icon: Icon, label }) => (
-            <Chip
-              key={label}
-              icon={<Icon fontSize="small" />}
-              label={label}
-              size="small"
-              variant="outlined"
-              sx={{ bgcolor: "background.paper" }}
-            />
-          ))}
-        </Stack>
-      </Box>
+      <HeroBanner />
 
       <MoodSearch />
 
-      <Typography variant="h4" gutterBottom sx={{ mb: { xs: 2, sm: 3 } }}>
-        Now Showing
-      </Typography>
+      <Box component={motion.div} {...viewportFadeInProps(prefersReducedMotion, fadeInUpSmall)}>
+        <Typography variant="h4" gutterBottom sx={{ mb: { xs: 2, sm: 3 } }}>
+          Now Showing
+        </Typography>
+      </Box>
       {/* One row on desktop, wrapping to two on mobile — kept to
           `size="small"` throughout, same minimalism pass as MoodSearch
           above, since a full-height search row plus a full-height
@@ -450,7 +391,7 @@ export function HomePage() {
       <Grid container spacing={{ xs: 2, sm: 3 }}>
         {isLoading &&
           Array.from({ length: 10 }).map((_, i) => (
-            <Grid item xs={6} sm={4} md={3} lg={2.4} key={i}>
+            <Grid item xs={6} sm={3} md={2.4} lg={2} key={i}>
               <Skeleton
                 variant="rounded"
                 height={280}
@@ -461,7 +402,7 @@ export function HomePage() {
             </Grid>
           ))}
         {movies?.map((movie) => (
-          <Grid item xs={6} sm={4} md={3} lg={2.4} key={movie.id}>
+          <Grid item xs={6} sm={3} md={2.4} lg={2} key={movie.id}>
             <MovieCard movie={movie} />
           </Grid>
         ))}
@@ -469,12 +410,14 @@ export function HomePage() {
 
       {recommendedMovies && recommendedMovies.length > 0 && (
         <Box sx={{ mt: { xs: 4, sm: 5 } }}>
-          <Typography variant="h4" gutterBottom sx={{ mb: { xs: 2, sm: 3 } }}>
-            Recommended for you
-          </Typography>
+          <Box component={motion.div} {...viewportFadeInProps(prefersReducedMotion, fadeInUpSmall)}>
+            <Typography variant="h4" gutterBottom sx={{ mb: { xs: 2, sm: 3 } }}>
+              Recommended for you
+            </Typography>
+          </Box>
           <Grid container spacing={{ xs: 2, sm: 3 }}>
             {recommendedMovies.map((movie) => (
-              <Grid item xs={6} sm={4} md={3} lg={2.4} key={movie.id}>
+              <Grid item xs={6} sm={3} md={2.4} lg={2} key={movie.id}>
                 <MovieCard movie={movie} />
               </Grid>
             ))}

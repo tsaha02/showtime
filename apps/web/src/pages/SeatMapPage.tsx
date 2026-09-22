@@ -24,6 +24,7 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
 import LocalActivityOutlinedIcon from "@mui/icons-material/LocalActivityOutlined";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -38,6 +39,8 @@ import VolunteerActivismOutlinedIcon from "@mui/icons-material/VolunteerActivism
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements } from "@stripe/react-stripe-js";
+import { motion } from "framer-motion";
+import { ctaTapProps, usePrefersReducedMotion, ENTRANCE } from "../lib/motion";
 import {
   useGetSeatMapQuery,
   useConfirmBookingMutation,
@@ -45,12 +48,14 @@ import {
   usePreviewCouponMutation,
   useGetFoodItemsQuery,
   useGetDonationsTotalQuery,
+  useReleaseSeatMutation,
 } from "../store/api";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import {
   setSeatMap,
   clearBookingFlow,
   selectHeldSeats,
+  selectHeldSeatIds,
   selectCartTotal,
 } from "../store/slices/bookingSlice";
 import { showToast } from "../store/slices/uiSlice";
@@ -64,6 +69,7 @@ import { downloadTicketPdf } from "../lib/downloadTicketPdf";
 import type { BookingDTO, CouponPreviewDTO, CreatePaymentIntentResponseDTO, SeatCategory } from "@showtime/shared";
 
 const STEPS = ["Select Seats", "Details", "Confirm & Pay", "Success"];
+const MotionButton = motion.create(Button);
 
 // Created once at module scope (not per render) per Stripe's docs. When the
 // publishable key isn't set yet (Stripe not configured on this machine),
@@ -79,12 +85,15 @@ export function SeatMapPage() {
   const user = useAppSelector((s) => s.auth.user);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const { data, isLoading, isError, error, refetch } = useGetSeatMapQuery(showId, { skip: !showId });
   const seatMap = useAppSelector((s) => s.booking.seatMap);
   const heldSeats = useAppSelector(selectHeldSeats);
+  const heldSeatIds = useAppSelector(selectHeldSeatIds);
   const cartTotal = useAppSelector(selectCartTotal);
   const secondsLeft = useHoldCountdown();
+  const [releaseSeat] = useReleaseSeatMutation();
 
   const [activeStep, setActiveStep] = useState(0);
   const [guestName, setGuestName] = useState("");
@@ -151,10 +160,31 @@ export function SeatMapPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
-  // Clear the booking flow when leaving this page entirely.
+  // A ref (not state) so the unmount cleanup below — registered once,
+  // deliberately never re-run mid-visit — can still read whichever
+  // seats are ACTUALLY held at the moment the user actually leaves,
+  // rather than a value captured back when the effect first mounted.
+  const leaveCleanupRef = useRef({ showId, seatIds: heldSeatIds });
+  leaveCleanupRef.current = { showId, seatIds: heldSeatIds };
+
+  // Clear the booking flow when leaving this page entirely — and, if any
+  // seats were still held (the user navigated away mid-selection instead
+  // of finishing checkout or explicitly deselecting), actually release
+  // them server-side too, not just reset this page's own local state.
+  // Before this fix, a held seat stayed locked in Redis for the full
+  // 5-minute TTL regardless of whether the person was still even on this
+  // page — genuinely blocking that seat from every other customer for
+  // however long was left, for no reason once this user has clearly
+  // moved on. A successful booking already empties `heldSeatIds` via
+  // `clearBookingFlow()` in `finalizeBooking` before this ever runs, so
+  // this can't accidentally release seats that were just paid for.
   useEffect(() => {
     return () => {
       dispatch(clearBookingFlow());
+      const { showId: leftShowId, seatIds } = leaveCleanupRef.current;
+      for (const seatId of seatIds) {
+        void releaseSeat({ showId: leftShowId, seatId }).catch(() => {});
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -533,9 +563,15 @@ export function SeatMapPage() {
             </Box>
             <Stack direction="row" spacing={2} alignItems="center">
               <Typography variant="h6">Total: ₹{cartTotal + foodTotal}</Typography>
-              <Button variant="contained" size="large" onClick={goToDetails} disabled={heldSeats.length === 0}>
+              <MotionButton
+                variant="contained"
+                size="large"
+                onClick={goToDetails}
+                disabled={heldSeats.length === 0}
+                {...ctaTapProps(prefersReducedMotion)}
+              >
                 Continue
-              </Button>
+              </MotionButton>
             </Stack>
           </Paper>
         </Box>
@@ -554,8 +590,7 @@ export function SeatMapPage() {
                 sx={{
                   px: 3,
                   py: 2.5,
-                  background: (t) =>
-                    `linear-gradient(135deg, ${t.palette.primary.dark}33, ${t.palette.secondary.dark}1a)`,
+                  bgcolor: (t) => alpha(t.palette.primary.main, 0.08),
                   borderBottom: "1px solid",
                   borderColor: "divider",
                   display: "flex",
@@ -620,9 +655,13 @@ export function SeatMapPage() {
                   />
                   <Stack direction="row" spacing={2}>
                     <Button onClick={() => setActiveStep(0)}>Back</Button>
-                    <Button variant="contained" onClick={goToConfirmFromDetails}>
+                    <MotionButton
+                      variant="contained"
+                      onClick={goToConfirmFromDetails}
+                      {...ctaTapProps(prefersReducedMotion)}
+                    >
                       Continue
-                    </Button>
+                    </MotionButton>
                   </Stack>
                 </Stack>
               </CardContent>
@@ -639,8 +678,7 @@ export function SeatMapPage() {
                 sx={{
                   px: 3,
                   py: 2.5,
-                  background: (t) =>
-                    `linear-gradient(135deg, ${t.palette.primary.dark}33, ${t.palette.secondary.dark}1a)`,
+                  bgcolor: (t) => alpha(t.palette.primary.main, 0.08),
                   borderBottom: "1px solid",
                   borderColor: "divider",
                   display: "flex",
@@ -884,9 +922,15 @@ export function SeatMapPage() {
                     />
                     <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
                       <Button onClick={goBackFromConfirm}>Back</Button>
-                      <Button variant="contained" size="large" onClick={handleConfirm} disabled={isConfirming}>
+                      <MotionButton
+                        variant="contained"
+                        size="large"
+                        onClick={handleConfirm}
+                        disabled={isConfirming}
+                        {...ctaTapProps(prefersReducedMotion)}
+                      >
                         {isConfirming ? "Processing…" : "Confirm & Pay"}
-                      </Button>
+                      </MotionButton>
                     </Stack>
                   </>
                 )}
@@ -918,16 +962,45 @@ export function SeatMapPage() {
         <Box display="flex" justifyContent="center">
           <Box sx={{ width: "100%", maxWidth: 840 }}>
             <Stack alignItems="center" spacing={1} sx={{ mb: 3, textAlign: "center" }}>
-              <CheckCircleIcon sx={{ fontSize: 48, color: "success.main" }} />
-              <Typography variant="h5" fontWeight={700}>
-                Booking confirmed!
-              </Typography>
-              <Typography color="text.secondary">
-                A confirmation has been sent to your email — you're all set for {confirmedBooking.movieTitle}.
-              </Typography>
+              {/* The one genuine reward moment in the whole booking flow
+                  — everything before this has gotten motion, this hadn't.
+                  A spring "pop" (scale overshoots past 1 then settles,
+                  via the bouncier stiffness/lower damping below — the
+                  shared SPRING constant elsewhere in this app is tuned
+                  for snappy UI feedback, not a celebratory beat) reads
+                  as a small win, not just another icon fading in. */}
+              <Box
+                component={motion.div}
+                initial={prefersReducedMotion ? false : { scale: 0, rotate: -45 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: "spring", stiffness: 260, damping: 15 }}
+              >
+                <CheckCircleIcon sx={{ fontSize: 48, color: "success.main" }} />
+              </Box>
+              <Box
+                component={motion.div}
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ ...ENTRANCE, delay: 0.15 }}
+              >
+                <Typography variant="h5" fontWeight={700}>
+                  Booking confirmed!
+                </Typography>
+                <Typography color="text.secondary">
+                  A confirmation has been sent to your email — you're all set for {confirmedBooking.movieTitle}.
+                </Typography>
+              </Box>
             </Stack>
 
-            <Grid container spacing={3} alignItems="stretch" justifyContent="center">
+            <Grid
+              component={motion.div}
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ ...ENTRANCE, delay: 0.3 }}
+              container
+              spacing={3}
+              alignItems="stretch"
+              justifyContent="center">
               <Grid item xs={12} sm={7}>
                 <Card sx={{ height: "100%" }}>
                   <CardContent>

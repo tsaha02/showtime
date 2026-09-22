@@ -16,7 +16,15 @@ router.use(requireAdminAuth);
 router.get(
   "/",
   asyncHandler(async (_req, res) => {
+    // `Show` is shared between movies and events (see eventSessions.routes.ts,
+    // which filters the other way — `kind: "EVENT"`). Without this filter,
+    // an EVENT row comes back with `movie: null`, and the admin UI (which
+    // renders `show.movie.title` unconditionally, since THIS page is
+    // specifically the movies-only Shows screen) crashes on it — a real
+    // regression once the Events feature started writing EVENT rows into
+    // this same table.
     const shows = await prisma.show.findMany({
+      where: { kind: "MOVIE" },
       include: { movie: true, screen: { include: { theatre: true } }, prices: true },
       orderBy: { startTime: "desc" },
     });

@@ -14,14 +14,19 @@ import {
 } from "@mui/material";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import LocalOfferIcon from "@mui/icons-material/LocalOffer";
+import { motion } from "framer-motion";
 import { useGetOffersQuery } from "../store/api";
 import { getErrorMessage } from "../lib/apiError";
+import { cardHoverProps, fadeInUp, usePrefersReducedMotion, viewportFadeInProps } from "../lib/motion";
 
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
+const MotionCard = motion.create(Card);
+
 export function OffersPage() {
   useDocumentTitle("Offers & Deals");
   const { data: offers, isLoading, isError, error } = useGetOffersQuery();
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const handleCopy = async (code: string) => {
     try {
@@ -92,13 +97,15 @@ export function OffersPage() {
       <Grid container spacing={3}>
         {offers?.map((offer) => (
           <Grid item xs={12} sm={6} md={4} key={offer.code}>
-            <Card
+            <MotionCard
+              {...viewportFadeInProps(prefersReducedMotion, fadeInUp)}
+              {...cardHoverProps(prefersReducedMotion)}
               sx={{
                 height: "100%",
                 position: "relative",
                 overflow: "hidden",
-                background: (t) =>
-                  `linear-gradient(135deg, ${t.palette.primary.dark}33, ${t.palette.secondary.dark}1a)`,
+                borderTop: "3px solid",
+                borderTopColor: "secondary.main",
               }}
             >
               <CardContent sx={{ p: 3 }}>
@@ -151,7 +158,7 @@ export function OffersPage() {
                     : "No expiry"}
                 </Typography>
               </CardContent>
-            </Card>
+            </MotionCard>
           </Grid>
         ))}
       </Grid>

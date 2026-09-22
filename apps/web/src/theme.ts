@@ -48,9 +48,17 @@ export const theme = createTheme({
     MuiCssBaseline: {
       styleOverrides: {
         body: {
-          backgroundImage:
-            "radial-gradient(ellipse 1200px 600px at 50% -10%, rgba(255,61,87,0.10), transparent), radial-gradient(ellipse 800px 500px at 100% 0%, rgba(245,197,24,0.06), transparent)",
-          backgroundAttachment: "fixed",
+          // A flat ground, not a colored wash behind every page — two
+          // competing red/gold glows smeared under the ENTIRE site (on
+          // top of individual sections that already carry their own
+          // accent treatment — the hero, the seat-map screen glow) was
+          // the single biggest thing making this read as an AI-
+          // generated template rather than a designed product: real
+          // dark-UI apps spend a gradient moment or two, deliberately,
+          // not a permanent ambient tint under everything. One color
+          // reads as intentional; gradients on every surface reads as
+          // decoration applied by reflex.
+          backgroundColor: "#0a0a0d",
           // BrandLogo's "cut-out" notches punch through to whatever sits
           // behind them — this app is always dark-mode, so that's always
           // the page background, never a light color.

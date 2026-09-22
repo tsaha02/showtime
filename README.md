@@ -1181,6 +1181,59 @@ markdown dependency) that turns links into real react-router `Link`s.
 
 ---
 
+## Motion & visual design
+
+`apps/web` uses Framer Motion for a deliberately restrained set of
+interactions rather than decoration scattered ad hoc — every animation
+in the app draws from one shared file, `apps/web/src/lib/motion.ts`:
+two transition constants (`SPRING` for snappy interactive feedback,
+`ENTRANCE` for content reveals), a couple of reusable variants
+(`fadeInUp`, `staggerContainer`), and a `usePrefersReducedMotion` hook
+every component checks before animating anything — a real
+accessibility signal, not a cosmetic afterthought.
+
+- **The seat map** (`SeatMapGrid.tsx`) — the app's single most
+  interactive surface: a glowing curved screen, staggered row entrance,
+  a subtle per-row scale that reads as fake perspective (rows nearer
+  the screen render very slightly smaller), spring hover/tap feedback,
+  and a brief pulse on any seat whose state changes — whether from this
+  user's own click or a live Socket.io update from someone else — all
+  while preserving the component's existing `memo()` optimization (a
+  100-seat grid doesn't re-render seats a socket event didn't touch).
+- **The homepage hero** (`HeroBanner.tsx`) — two ambient gradient blobs
+  that drift slowly and nudge toward the cursor, plus a word-by-word
+  headline reveal.
+- **The booking success screen** — the one genuine reward moment in the
+  checkout flow gets a spring "pop" on the confirmation checkmark
+  (scale overshoots past 1 before settling) rather than just fading in
+  like everything else.
+- **Page transitions** — a short 180ms cross-fade between routes via
+  `AnimatePresence`, keyed on `location.pathname`, sitting inside the
+  existing `<Suspense>` boundary so a not-yet-loaded route chunk still
+  just shows the skeleton fallback.
+- **Cards and CTAs** — movie/event/offer cards lift on hover and fade
+  up once as they scroll into view (`whileInView`, fires once); primary
+  buttons across the booking flow get spring press feedback.
+
+### A deliberately restrained gradient strategy
+
+Early passes over-used decorative gradients — a dual-tone radial wash
+behind literally every page, plus the identical diagonal red-to-gold
+`linear-gradient` copy-pasted across the movie hero, several cards, and
+two unrelated summary headers. That reads as a templated look rather
+than a designed one: real dark-UI apps spend a gradient moment
+deliberately, not as decoration applied by reflex to every surface.
+The fix wasn't a new palette (the red/gold/near-black colors stayed) —
+it was discipline about *where* a gradient earns its place: the
+page-wide wash is gone (flat `#0a0a0d`), the copy-pasted card gradients
+became flat tints or a single solid accent border, and only two
+gradients remain anywhere in the app — the hero's ambient glow and the
+seat map's screen light — both genuinely justified (one deliberate
+first-impression moment, one literal light source), not applied
+everywhere out of habit.
+
+---
+
 ## Performance and SEO
 
 ### Route-level code splitting

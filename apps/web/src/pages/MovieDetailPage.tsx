@@ -27,7 +27,12 @@ import {
   Skeleton,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
+import { motion } from "framer-motion";
 import { MovieCard } from "../components/MovieCard";
+import { ShowtimeSlot } from "../components/ShowtimeSlot";
+import { ctaTapProps, fadeInUpSmall, usePrefersReducedMotion, viewportFadeInProps } from "../lib/motion";
+
+const MotionButton = motion.create(Button);
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
 import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
@@ -64,6 +69,7 @@ export function MovieDetailPage() {
   const navigate = useNavigate();
   const user = useAppSelector((s) => s.auth.user);
   const dispatch = useAppDispatch();
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   // Defaults to whatever city the user picked on Home (persisted in
   // locationSlice) so "I picked Mumbai, then opened this movie" shows
@@ -79,6 +85,7 @@ export function MovieDetailPage() {
   const { data: similarMovies } = useGetSimilarMoviesQuery(id, { skip: !id });
   const { data: reviewSummary } = useGetReviewSummaryQuery(id, { skip: !id });
   const { data: shows } = useGetMovieShowsQuery({ movieId: id, city: cityFilter ?? undefined });
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [ratingsPage, setRatingsPage] = useState(1);
   const [shownRatings, setShownRatings] = useState<RatingDTO[]>([]);
   const { data: ratingsData } = useGetMovieRatingsQuery({ movieId: id, page: ratingsPage });
@@ -196,19 +203,19 @@ export function MovieDetailPage() {
           }}
         >
           <Grid container spacing={4}>
-            <Grid item xs={12} sm={5} md={4}>
+            <Grid item xs={12} sm={4} md={3}>
               <Skeleton
                 variant="rounded"
                 sx={{
-                  width: { xs: "60%", sm: "100%" },
-                  maxWidth: { xs: 260, sm: "none" },
+                  width: { xs: "50%", sm: "100%" },
+                  maxWidth: { xs: 200, sm: 240 },
                   mx: { xs: "auto", sm: 0 },
                   aspectRatio: "2 / 3",
                   borderRadius: 2,
                 }}
               />
             </Grid>
-            <Grid item xs={12} sm={7} md={8}>
+            <Grid item xs={12} sm={8} md={9}>
               <Skeleton variant="text" width="70%" height={56} sx={{ mb: 1 }} />
               <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
                 <Skeleton variant="rounded" width={90} height={24} />
@@ -300,19 +307,18 @@ export function MovieDetailPage() {
           p: { xs: 2.5, sm: 3, md: 4 },
           mb: 3,
           overflow: "hidden",
-          backgroundImage: (theme) =>
-            `radial-gradient(ellipse 900px 500px at 0% 0%, ${alpha(theme.palette.primary.main, 0.12)}, transparent), radial-gradient(ellipse 700px 400px at 100% 100%, ${alpha(theme.palette.secondary.main, 0.08)}, transparent)`,
+          bgcolor: "background.paper",
         }}
       >
         <Grid container spacing={4}>
-          <Grid item xs={12} sm={5} md={4}>
+          <Grid item xs={12} sm={4} md={3}>
             <Box
               component="img"
               src={movie.posterUrl ?? "https://placehold.co/300x450?text=No+Poster"}
               alt={movie.title}
               sx={{
-                width: { xs: "60%", sm: "100%" },
-                maxWidth: { xs: 260, sm: "none" },
+                width: { xs: "50%", sm: "100%" },
+                maxWidth: { xs: 200, sm: 240 },
                 display: "block",
                 mx: { xs: "auto", sm: 0 },
                 borderRadius: 2,
@@ -322,7 +328,7 @@ export function MovieDetailPage() {
               }}
             />
           </Grid>
-          <Grid item xs={12} sm={7} md={8}>
+          <Grid item xs={12} sm={8} md={9}>
             <Typography variant="h3" fontWeight={800} sx={{ fontSize: { xs: "1.9rem", sm: "2.4rem" } }} gutterBottom>
               {movie.title}
             </Typography>
@@ -350,13 +356,44 @@ export function MovieDetailPage() {
                 Watch Trailer
               </Button>
             </Stack>
-            <Typography color="text.secondary" sx={{ lineHeight: 1.7 }}>
+            {/* Collapsed to a few lines by default rather than the full
+                synopsis — a long OMDb-sourced description used to push
+                Showtimes (the actual reason anyone's on this page) well
+                below the fold. The poster is a secondary visual cue, not
+                the point of a booking flow; this keeps it present without
+                letting it (or a wall of plot summary) dominate the first
+                screen. */}
+            <Typography
+              color="text.secondary"
+              sx={{
+                lineHeight: 1.7,
+                ...(descriptionExpanded
+                  ? {}
+                  : {
+                      display: "-webkit-box",
+                      WebkitLineClamp: 3,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                    }),
+              }}
+            >
               {movie.description}
             </Typography>
+            <Button
+              size="small"
+              onClick={() => setDescriptionExpanded((v) => !v)}
+              sx={{ mt: 0.5, px: 0, minWidth: 0 }}
+            >
+              {descriptionExpanded ? "Show less" : "Read more"}
+            </Button>
           </Grid>
         </Grid>
       </Box>
 
+      <Box
+        component={motion.div}
+        {...viewportFadeInProps(prefersReducedMotion, fadeInUpSmall)}
+      >
       <Stack
         direction={{ xs: "column", sm: "row" }}
         justifyContent="space-between"
@@ -423,6 +460,7 @@ export function MovieDetailPage() {
           </FormControl>
         </Stack>
       </Stack>
+      </Box>
       {showsByTheatre.length === 0 && (shows?.length ?? 0) > 0 && (
         <Typography color="text.secondary">
           {cityFilter
@@ -450,9 +488,14 @@ export function MovieDetailPage() {
                   fullWidth
                   required
                 />
-                <Button type="submit" variant="contained" disabled={isJoiningWaitlist}>
+                <MotionButton
+                  type="submit"
+                  variant="contained"
+                  disabled={isJoiningWaitlist}
+                  {...ctaTapProps(prefersReducedMotion)}
+                >
                   Notify me
-                </Button>
+                </MotionButton>
               </Stack>
             </Box>
           </CardContent>
@@ -475,27 +518,14 @@ export function MovieDetailPage() {
                 </Typography>
                 <Stack spacing={1}>
                   {theatreShows.map((show) => (
-                    <Button
+                    <ShowtimeSlot
                       key={show.id}
-                      variant="outlined"
-                      fullWidth
-                      sx={{ justifyContent: "flex-start", textAlign: "left" }}
+                      startTime={show.startTime}
+                      screenName={show.screenName}
+                      format={show.format}
+                      language={show.language}
                       onClick={() => navigate(`/shows/${show.id}/seats`)}
-                    >
-                      {new Date(show.startTime).toLocaleString([], {
-                        weekday: "short",
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                      {" · "}
-                      {show.screenName}
-                      {" · "}
-                      {show.format}
-                      {" · "}
-                      {show.language}
-                    </Button>
+                    />
                   ))}
                 </Stack>
               </CardContent>
@@ -506,10 +536,12 @@ export function MovieDetailPage() {
 
       <Divider sx={{ my: 3 }} />
 
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-        <RateReviewOutlinedIcon color="primary" />
-        <Typography variant="h5">Ratings & Reviews</Typography>
-      </Stack>
+      <Box component={motion.div} {...viewportFadeInProps(prefersReducedMotion, fadeInUpSmall)}>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+          <RateReviewOutlinedIcon color="primary" />
+          <Typography variant="h5">Ratings & Reviews</Typography>
+        </Stack>
+      </Box>
 
       {user && (
         <Card sx={{ mb: 3 }}>
@@ -535,9 +567,15 @@ export function MovieDetailPage() {
                   control={<Checkbox checked={isSpoiler} onChange={(e) => setIsSpoiler(e.target.checked)} />}
                   label="Contains spoilers"
                 />
-                <Button type="submit" variant="contained" disabled={isRating} sx={{ alignSelf: "flex-start" }}>
+                <MotionButton
+                  type="submit"
+                  variant="contained"
+                  disabled={isRating}
+                  sx={{ alignSelf: "flex-start" }}
+                  {...ctaTapProps(prefersReducedMotion)}
+                >
                   Submit rating
-                </Button>
+                </MotionButton>
               </Stack>
             </Box>
           </CardContent>
@@ -551,8 +589,7 @@ export function MovieDetailPage() {
             mb: 3,
             maxWidth: 480,
             borderColor: (theme) => alpha(theme.palette.secondary.main, 0.35),
-            backgroundImage: (theme) =>
-              `linear-gradient(135deg, ${alpha(theme.palette.secondary.main, 0.08)}, transparent)`,
+            bgcolor: (theme) => alpha(theme.palette.secondary.main, 0.05),
           }}
         >
           <CardContent>
@@ -709,13 +746,15 @@ export function MovieDetailPage() {
       {similarMovies && similarMovies.length > 0 && (
         <>
           <Divider sx={{ my: 3 }} />
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-            <RecommendOutlinedIcon color="primary" />
-            <Typography variant="h5">You might also like</Typography>
-          </Stack>
+          <Box component={motion.div} {...viewportFadeInProps(prefersReducedMotion, fadeInUpSmall)}>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+              <RecommendOutlinedIcon color="primary" />
+              <Typography variant="h5">You might also like</Typography>
+            </Stack>
+          </Box>
           <Grid container spacing={{ xs: 2, sm: 3 }}>
             {similarMovies.map((similar) => (
-              <Grid item xs={6} sm={4} md={3} lg={2.4} key={similar.id}>
+              <Grid item xs={6} sm={3} md={2.4} lg={2} key={similar.id}>
                 <MovieCard movie={similar} />
               </Grid>
             ))}

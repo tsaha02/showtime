@@ -1,5 +1,6 @@
-import { useMemo, useCallback, memo } from "react";
-import { Box, Button, Tooltip, Typography, Stack, Chip } from "@mui/material";
+import { useMemo, useCallback, useEffect, useRef, memo } from "react";
+import { Box, Tooltip, Typography, Stack, Chip } from "@mui/material";
+import { motion, useAnimationControls } from "framer-motion";
 import AccessibleIcon from "@mui/icons-material/Accessible";
 import {
   MAX_SEATS_PER_BOOKING,
@@ -122,21 +123,11 @@ export function SeatMapGrid({ showId, seats, prices }: SeatMapGridProps) {
     [showId, releaseSeat, holdSeat, dispatch, heldSeatIds],
   );
 
+  const rowCount = rows.length;
+
   return (
     <Box>
-      <Stack alignItems="center" spacing={1} sx={{ mb: 3 }}>
-        <Box
-          sx={{
-            width: "80%",
-            height: 8,
-            bgcolor: "grey.700",
-            borderRadius: "0 0 50% 50% / 0 0 100% 100%",
-          }}
-        />
-        <Typography variant="caption" color="text.secondary">
-          SCREEN
-        </Typography>
-      </Stack>
+      <Screen />
 
       {/* `alignItems: "center"` on THIS scrolling container, on a row
           wider than the viewport, is a classic CSS trap: a flex/grid
@@ -152,21 +143,41 @@ export function SeatMapGrid({ showId, seats, prices }: SeatMapGridProps) {
           exceeds the scroll container, while still centering normally
           whenever it fits (desktop, most phones in landscape). */}
       <Box sx={{ overflowX: "auto", pb: 2 }}>
-        <Stack spacing={1} sx={{ width: "fit-content", mx: "auto" }}>
-          {rows.map(({ rowKey, cells }) => (
-            <Stack key={rowKey} direction="row" spacing={0.75} alignItems="center">
-              <Typography variant="caption" sx={{ width: 20, color: "text.secondary" }}>
-                {String.fromCharCode(65 + rowKey)}
-              </Typography>
-              {cells.map((seat, col) =>
-                seat ? (
-                  <SeatCell key={seat.id} seat={seat} onClick={handleClick} />
-                ) : (
-                  <Box key={`gap-${col}`} sx={{ width: 32, height: 32 }} />
-                ),
-              )}
-            </Stack>
-          ))}
+        <Stack spacing={1.1} sx={{ width: "fit-content", mx: "auto" }}>
+          {rows.map(({ rowKey, cells }, rowIndex) => {
+            // Purely a paint-time `transform: scale`, not a layout
+            // change — rows nearer the screen render very slightly
+            // smaller, receding rows very slightly larger, a cheap
+            // fake-perspective depth cue real theatre seat maps use.
+            // `scale` doesn't participate in box-model sizing/gaps, so
+            // the careful aisle-alignment logic above (blank spacer
+            // Box per missing seat) stays exactly as accurate as
+            // before — this can't desync a row's seats from its
+            // neighbors' columns.
+            const depthScale = rowCount > 1 ? 0.93 + (rowIndex / (rowCount - 1)) * 0.09 : 1;
+            return (
+              <motion.div
+                key={rowKey}
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: rowIndex * 0.035, duration: 0.3, ease: "easeOut" }}
+                style={{ transform: `scale(${depthScale})`, transformOrigin: "center top" }}
+              >
+                <Stack direction="row" spacing={0.75} alignItems="center">
+                  <Typography variant="caption" sx={{ width: 20, color: "text.secondary" }}>
+                    {String.fromCharCode(65 + rowKey)}
+                  </Typography>
+                  {cells.map((seat, col) =>
+                    seat ? (
+                      <SeatCell key={seat.id} seat={seat} onClick={handleClick} />
+                    ) : (
+                      <Box key={`gap-${col}`} sx={{ width: 32, height: 32 }} />
+                    ),
+                  )}
+                </Stack>
+              </motion.div>
+            );
+          })}
         </Stack>
       </Box>
 
@@ -221,6 +232,52 @@ export function SeatMapGrid({ showId, seats, prices }: SeatMapGridProps) {
   );
 }
 
+// The screen itself: a curved, glowing arc rather than a flat gray bar —
+// a soft radial glow "cast" downward (like real screen-light spilling
+// onto an auditorium) plus a slow, subtle shimmer along the arc. Pure
+// CSS/SVG, no dependency on any booking state, so it can't ever interact
+// with (or be blamed for a bug in) the real-time seat logic below it.
+function Screen() {
+  return (
+    <Stack alignItems="center" spacing={1.5} sx={{ mb: 3.5 }}>
+      <Box sx={{ position: "relative", width: "82%", maxWidth: 640 }}>
+        <Box
+          sx={{
+            position: "absolute",
+            inset: "-24px -10% -40px",
+            background: (theme) =>
+              `radial-gradient(ellipse 60% 100% at 50% 0%, ${theme.palette.primary.main}22, transparent 70%)`,
+            filter: "blur(14px)",
+            pointerEvents: "none",
+          }}
+        />
+        <Box
+          component={motion.div}
+          initial={{ opacity: 0, scaleX: 0.85 }}
+          animate={{ opacity: 1, scaleX: 1 }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+          sx={{
+            position: "relative",
+            height: 10,
+            borderRadius: "0 0 50% 50% / 0 0 100% 100%",
+            // One tone (a literal screen glows one color, not a red-
+            // to-gold rainbow) rather than the primary+secondary sweep
+            // this used to be — same restraint as the rest of the
+            // theme's redesign: a gradient earns its place here because
+            // it IS a light source, but two competing hues on it read
+            // as decoration, not light.
+            background: (theme) => `linear-gradient(90deg, transparent, ${theme.palette.primary.light}, transparent)`,
+            boxShadow: (theme) => `0 6px 20px -4px ${theme.palette.primary.main}80`,
+          }}
+        />
+      </Box>
+      <Typography variant="caption" sx={{ letterSpacing: 3, color: "text.secondary" }}>
+        SCREEN
+      </Typography>
+    </Stack>
+  );
+}
+
 // Memoized: a seat map can have 50-100+ cells, and (thanks to Immer's
 // structural sharing in bookingSlice) every seat OTHER than the one a
 // socket event just touched keeps the exact same object reference — so
@@ -236,6 +293,29 @@ const SeatCell = memo(function SeatCell({
   onClick: (seat: SeatMapEntryDTO) => void;
 }) {
   const categoryColor = CATEGORY_COLORS[seat.category];
+  const controls = useAnimationControls();
+  const isFirstRender = useRef(true);
+  const prevRef = useRef({ status: seat.status, heldByMe: seat.heldByMe });
+
+  // A brief settle-pulse whenever this SPECIFIC seat's state actually
+  // changes — whether from this user's own click (a satisfying
+  // confirmation once the hold/release round-trip resolves, on top of
+  // the instant `whileTap` press feedback below) or from a Socket.io
+  // event announcing someone else just grabbed/released it. Skipped on
+  // the very first render so mounting a 100-seat map doesn't also fire
+  // 100 pulses on top of the row entrance animation above.
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    const prev = prevRef.current;
+    const changed = prev.status !== seat.status || prev.heldByMe !== seat.heldByMe;
+    prevRef.current = { status: seat.status, heldByMe: seat.heldByMe };
+    if (changed) {
+      void controls.start({ scale: [1, 1.22, 1], transition: { duration: 0.35, ease: "easeOut" } });
+    }
+  }, [seat.status, seat.heldByMe, controls]);
 
   const badge = seat.wheelchairAccessible && (
     <AccessibleIcon
@@ -247,90 +327,67 @@ const SeatCell = memo(function SeatCell({
         color: "secondary.main",
         bgcolor: "background.paper",
         borderRadius: "50%",
+        zIndex: 1,
       }}
     />
   );
 
-  let button: JSX.Element;
   let title: string;
+  let baseSx: Record<string, unknown>;
+  let clickable = false;
 
   if (seat.status === "BOOKED") {
     title = "Already booked";
-    button = (
-      <span>
-        <Button
-          disabled
-          sx={{
-            minWidth: 32,
-            width: 32,
-            height: 32,
-            p: 0,
-            bgcolor: "grey.900",
-            color: "grey.700",
-          }}
-        >
-          {seat.label}
-        </Button>
-      </span>
-    );
+    baseSx = { bgcolor: "grey.900", color: "grey.700", border: "1px solid transparent" };
   } else if (seat.status === "HELD" && !seat.heldByMe) {
     title = "Someone else is holding this seat";
-    button = (
-      <span>
-        <Button
-          disabled
-          sx={{
-            minWidth: 32,
-            width: 32,
-            height: 32,
-            p: 0,
-            bgcolor: "grey.800",
-            color: "grey.600",
-          }}
-        >
-          {seat.label}
-        </Button>
-      </span>
-    );
+    baseSx = { bgcolor: "grey.800", color: "grey.600", border: "1px solid transparent" };
   } else if (seat.heldByMe) {
     title = "Your seat — click to deselect";
-    button = (
-      <Button
-        onClick={() => onClick(seat)}
-        variant="contained"
-        color="primary"
-        sx={{ minWidth: 32, width: 32, height: 32, p: 0 }}
-      >
-        {seat.label}
-      </Button>
-    );
+    clickable = true;
+    baseSx = {
+      bgcolor: "primary.main",
+      color: "primary.contrastText",
+      border: "1px solid transparent",
+      boxShadow: (theme: any) => `0 0 0 3px ${theme.palette.primary.main}33`,
+    };
   } else {
     // AVAILABLE
     title = seat.wheelchairAccessible
       ? `${seat.category} — wheelchair accessible — click to select`
       : `${seat.category} — click to select`;
-    button = (
-      <Button
-        onClick={() => onClick(seat)}
-        variant="outlined"
-        sx={{
-          minWidth: 32,
-          width: 32,
-          height: 32,
-          p: 0,
-          borderColor: categoryColor,
-          color: categoryColor,
-        }}
-      >
-        {seat.label}
-      </Button>
-    );
+    clickable = true;
+    baseSx = { bgcolor: "transparent", color: categoryColor, border: `1px solid ${categoryColor}` };
   }
 
   return (
     <Tooltip title={title}>
       <Box sx={{ position: "relative", lineHeight: 0 }}>
-        {button}
+        <Box
+          component={motion.button}
+          type="button"
+          disabled={!clickable}
+          onClick={clickable ? () => onClick(seat) : undefined}
+          animate={controls}
+          whileHover={clickable ? { scale: 1.12, y: -2 } : undefined}
+          whileTap={clickable ? { scale: 0.88 } : undefined}
+          transition={{ type: "spring", stiffness: 500, damping: 25 }}
+          sx={{
+            appearance: "none",
+            minWidth: 32,
+            width: 32,
+            height: 32,
+            p: 0,
+            borderRadius: 1,
+            fontSize: "0.75rem",
+            fontWeight: 600,
+            cursor: clickable ? "pointer" : "default",
+            transition: "background-color 0.2s, border-color 0.2s, box-shadow 0.2s",
+            ...baseSx,
+          }}
+        >
+          {seat.label}
+        </Box>
         {badge}
       </Box>
     </Tooltip>

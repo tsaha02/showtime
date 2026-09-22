@@ -20,7 +20,10 @@ import {
   Skeleton,
 } from "@mui/material";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
+import { motion } from "framer-motion";
 import { useGetEventQuery, useGetEventSessionsQuery, useGetIndiaCitiesQuery } from "../store/api";
+import { fadeInUpSmall, usePrefersReducedMotion, viewportFadeInProps } from "../lib/motion";
+import { ShowtimeSlot } from "../components/ShowtimeSlot";
 import { useAppSelector, useAppDispatch } from "../store/hooks";
 import { setSelectedCity } from "../store/slices/locationSlice";
 import { getErrorMessage } from "../lib/apiError";
@@ -39,11 +42,13 @@ export function EventDetailPage() {
   const persistedCity = useAppSelector((s) => s.location.city);
   const [cityFilter, setCityFilter] = useState<string | null>(persistedCity);
   const { data: indiaCities } = useGetIndiaCitiesQuery();
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const { data: event, isLoading, isError, error } = useGetEventQuery(id);
   useDocumentTitle(event?.title ?? "Event");
   const { data: sessions } = useGetEventSessionsQuery({ eventId: id, city: cityFilter ?? undefined }, { skip: !id });
 
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const [formatFilter, setFormatFilter] = useState("");
   const [languageFilter, setLanguageFilter] = useState("");
   const formatOptions = useMemo(
@@ -77,19 +82,19 @@ export function EventDetailPage() {
     return (
       <Box>
         <Grid container spacing={4}>
-          <Grid item xs={12} sm={5} md={4}>
+          <Grid item xs={12} sm={4} md={3}>
             <Skeleton
               variant="rounded"
               sx={{
-                width: { xs: "60%", sm: "100%" },
-                maxWidth: { xs: 260, sm: "none" },
+                width: { xs: "50%", sm: "100%" },
+                maxWidth: { xs: 200, sm: 240 },
                 mx: { xs: "auto", sm: 0 },
                 aspectRatio: "2 / 3",
                 borderRadius: 2,
               }}
             />
           </Grid>
-          <Grid item xs={12} sm={7} md={8}>
+          <Grid item xs={12} sm={8} md={9}>
             <Skeleton variant="text" width="60%" height={48} sx={{ mb: 1 }} />
             <Stack direction="row" spacing={1} my={1}>
               <Skeleton variant="rounded" width={90} height={24} />
@@ -150,14 +155,14 @@ export function EventDetailPage() {
         }}
       />
       <Grid container spacing={4}>
-        <Grid item xs={12} sm={5} md={4}>
+        <Grid item xs={12} sm={4} md={3}>
           <Box
             component="img"
             src={event.posterUrl ?? "https://placehold.co/300x450?text=No+Poster"}
             alt={event.title}
             sx={{
-              width: { xs: "60%", sm: "100%" },
-              maxWidth: { xs: 260, sm: 300 },
+              width: { xs: "50%", sm: "100%" },
+              maxWidth: { xs: 200, sm: 240 },
               display: "block",
               mx: { xs: "auto", sm: 0 },
               borderRadius: 2,
@@ -165,7 +170,7 @@ export function EventDetailPage() {
             }}
           />
         </Grid>
-        <Grid item xs={12} sm={7} md={8}>
+        <Grid item xs={12} sm={8} md={9}>
           <Typography variant="h4" gutterBottom>
             {event.title}
           </Typography>
@@ -173,14 +178,41 @@ export function EventDetailPage() {
             <Chip label={eventCategoryLabel(event.category)} size="small" />
             <Chip label={`${event.durationMins} mins`} size="small" />
           </Stack>
-          <Typography paragraph color="text.secondary">
+          {/* Collapsed by default — see the identical fix/reasoning on
+              MovieDetailPage: Sessions (the actual booking action) used
+              to sit well below the fold behind a full description. */}
+          <Typography
+            color="text.secondary"
+            sx={{
+              lineHeight: 1.7,
+              ...(descriptionExpanded
+                ? {}
+                : {
+                    display: "-webkit-box",
+                    WebkitLineClamp: 3,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
+                  }),
+            }}
+          >
             {event.description}
           </Typography>
+          <Button
+            size="small"
+            onClick={() => setDescriptionExpanded((v) => !v)}
+            sx={{ mt: 0.5, px: 0, minWidth: 0 }}
+          >
+            {descriptionExpanded ? "Show less" : "Read more"}
+          </Button>
         </Grid>
       </Grid>
 
       <Divider sx={{ my: 3 }} />
 
+      <Box
+        component={motion.div}
+        {...viewportFadeInProps(prefersReducedMotion, fadeInUpSmall)}
+      >
       <Stack
         direction={{ xs: "column", sm: "row" }}
         justifyContent="space-between"
@@ -244,6 +276,7 @@ export function EventDetailPage() {
           </FormControl>
         </Stack>
       </Stack>
+      </Box>
 
       {sessionsByTheatre.length === 0 && (sessions?.length ?? 0) > 0 && (
         <Typography color="text.secondary">
@@ -274,27 +307,14 @@ export function EventDetailPage() {
                 </Typography>
                 <Stack spacing={1}>
                   {theatreSessions.map((session) => (
-                    <Button
+                    <ShowtimeSlot
                       key={session.id}
-                      variant="outlined"
-                      fullWidth
-                      sx={{ justifyContent: "flex-start", textAlign: "left" }}
+                      startTime={session.startTime}
+                      screenName={session.screenName}
+                      format={session.format}
+                      language={session.language}
                       onClick={() => navigate(`/shows/${session.id}/seats`)}
-                    >
-                      {new Date(session.startTime).toLocaleString([], {
-                        weekday: "short",
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                      {" · "}
-                      {session.screenName}
-                      {" · "}
-                      {session.format}
-                      {" · "}
-                      {session.language}
-                    </Button>
+                    />
                   ))}
                 </Stack>
               </CardContent>

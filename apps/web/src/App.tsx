@@ -1,6 +1,7 @@
 import { useEffect, Suspense, lazy } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useLocation } from "react-router-dom";
 import { Container, Box, Grid, Skeleton } from "@mui/material";
+import { AnimatePresence, motion } from "framer-motion";
 import { NavBar } from "./components/NavBar";
 import { GlobalToast } from "./components/GlobalToast";
 import { Footer } from "./components/Footer";
@@ -9,6 +10,7 @@ import { EnableNotificationsBanner } from "./components/EnableNotificationsBanne
 import { useAppDispatch } from "./store/hooks";
 import { useGetMeQuery } from "./store/api";
 import { setUser, clearUser } from "./store/slices/authSlice";
+import { usePrefersReducedMotion } from "./lib/motion";
 
 // Every page is a separate chunk, fetched only when its route is
 // actually visited, instead of one large bundle shipping all ~24 pages
@@ -78,6 +80,90 @@ function RouteFallback() {
   );
 }
 
+// Framer's docs pattern for combining `AnimatePresence` with React Router
+// v6: key the exiting/entering element on `location.pathname` and pass an
+// explicit `location` prop down to `<Routes>` so it renders the OLD route's
+// element while `AnimatePresence` plays the exit animation, rather than
+// snapping straight to the new route before the exit finishes. `mode="wait"`
+// keeps it to one page on screen at a time (a plain cross-fade, not the new
+// page sliding in underneath/over the old one) — deliberately kept to a
+// short 180ms + tiny 8px offset so it reads as "polished," not "slow." This
+// sits INSIDE the existing `<Suspense>` boundary, unchanged otherwise: a
+// route whose chunk isn't loaded yet still suspends to `RouteFallback` as
+// before (no animated exit for that specific case, since the whole subtree
+// suspends rather than unmounting normally) — an accepted tradeoff, not a
+// regression, since that fallback swap was already instant pre-existing
+// behavior.
+function AnimatedRoutes() {
+  const location = useLocation();
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  // React Router (unlike a traditional multi-page site) never resets
+  // scroll position on navigation by itself — the browser has no reason
+  // to, since no real page load happens. Without this, clicking from a
+  // movie you scrolled deep into straight to a new page landed the
+  // visitor wherever THAT scroll position happened to be, not the top of
+  // the new page. Keyed on `pathname` only (not the full location), so
+  // an in-place filter/query-param change on the SAME page — HomePage's
+  // search/genre/city filters, for instance — doesn't yank scroll back
+  // to the top while someone's still looking at the results below.
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" as ScrollBehavior });
+  }, [location.pathname]);
+
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={location.pathname}
+        initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={prefersReducedMotion ? undefined : { opacity: 0, y: -8 }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
+      >
+        <Routes location={location}>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/movies/:id" element={<MovieDetailPage />} />
+          <Route path="/events" element={<EventsPage />} />
+          <Route path="/events/:id" element={<EventDetailPage />} />
+          <Route path="/search-movies" element={<SearchMoviesPage />} />
+          <Route path="/discover/:externalId" element={<DiscoverDetailPage />} />
+          <Route path="/shows/:showId/seats" element={<SeatMapPage />} />
+          <Route path="/checkout/find-booking" element={<FindBookingPage />} />
+          <Route
+            path="/my-bookings"
+            element={
+              <RequireAuth>
+                <MyBookingsPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <RequireAuth>
+                <ProfilePage />
+              </RequireAuth>
+            }
+          />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/contact" element={<ContactPage />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/refund-policy" element={<RefundPolicyPage />} />
+          <Route path="/gift-cards" element={<GiftCardsPage />} />
+          <Route path="/offers" element={<OffersPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
 export default function App() {
   const dispatch = useAppDispatch();
   // `me` is fetched once on app boot to discover whether the httpOnly
@@ -96,45 +182,7 @@ export default function App() {
       <EnableNotificationsBanner />
       <Container maxWidth="lg" sx={{ pt: 3, pb: 4 }}>
         <Suspense fallback={<RouteFallback />}>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/movies/:id" element={<MovieDetailPage />} />
-            <Route path="/events" element={<EventsPage />} />
-            <Route path="/events/:id" element={<EventDetailPage />} />
-            <Route path="/search-movies" element={<SearchMoviesPage />} />
-            <Route path="/discover/:externalId" element={<DiscoverDetailPage />} />
-            <Route path="/shows/:showId/seats" element={<SeatMapPage />} />
-            <Route path="/checkout/find-booking" element={<FindBookingPage />} />
-            <Route
-              path="/my-bookings"
-              element={
-                <RequireAuth>
-                  <MyBookingsPage />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/profile"
-              element={
-                <RequireAuth>
-                  <ProfilePage />
-                </RequireAuth>
-              }
-            />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/verify-email" element={<VerifyEmailPage />} />
-            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-            <Route path="/reset-password" element={<ResetPasswordPage />} />
-            <Route path="/about" element={<AboutPage />} />
-            <Route path="/contact" element={<ContactPage />} />
-            <Route path="/terms" element={<TermsPage />} />
-            <Route path="/privacy" element={<PrivacyPage />} />
-            <Route path="/refund-policy" element={<RefundPolicyPage />} />
-            <Route path="/gift-cards" element={<GiftCardsPage />} />
-            <Route path="/offers" element={<OffersPage />} />
-            <Route path="*" element={<NotFoundPage />} />
-          </Routes>
+          <AnimatedRoutes />
         </Suspense>
       </Container>
       <Footer />
