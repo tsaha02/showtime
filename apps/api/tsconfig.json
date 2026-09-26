@@ -2,7 +2,10 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "commonjs",
-    "moduleResolution": "node",
+    // See packages/shared/tsconfig.cjs.json's comment — same fix, same
+    // reason: the legacy "node" value aliases to the now-removed
+    // "node10" and errors on Render's fresh install. Omitted entirely;
+    // `module: "commonjs"` gives tsc a correct default on its own.
     "lib": ["ES2022"],
     "strict": true,
     "esModuleInterop": true,
