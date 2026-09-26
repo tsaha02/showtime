@@ -2,7 +2,15 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "module": "CommonJS",
-    "moduleResolution": "Node",
+    // No explicit `moduleResolution` — the old "Node" value TypeScript
+    // internally aliases to the now-removed "node10" (TS5108: caught
+    // live when Render's fresh `npm install` resolved a TypeScript that
+    // hard-errors on it, even though it happened to still work with
+    // whatever was already on disk locally). Leaving it unset is the
+    // version-proof fix TypeScript itself recommends: with
+    // `module: "CommonJS"` set, tsc picks the matching classic Node
+    // resolution automatically, with no dependency on a legacy alias
+    // that different TS versions treat differently.
     "outDir": "dist/cjs"
   }
 }
