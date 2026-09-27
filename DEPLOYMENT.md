@@ -50,15 +50,29 @@ this repo.
   recent Node locally; 20 LTS is a safer target for a hosted service.
 - **Build Command**:
   ```
-  npm install && npm run build --workspace=packages/shared && npx prisma generate --schema=apps/api/prisma/schema.prisma && npm run build --workspace=apps/api
+  npm install --include=dev && npm run build --workspace=packages/shared && npx prisma generate --schema=apps/api/prisma/schema.prisma && npm run build --workspace=apps/api && npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
   ```
-- **Pre-Deploy Command** (if your Render plan has this field — it runs
-  after a successful build but before the new version receives traffic,
-  which is exactly where a migration belongs; if unavailable, append it
-  to the end of the Build Command instead):
-  ```
-  npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
-  ```
+  Two things bundled into this one command, each caught live deploying
+  this exact project:
+  - `--include=dev` on the `npm install`: `NODE_ENV=production` is also
+    set as a runtime env var below (needed for cookie behavior — see the
+    top of this file), and npm treats that same env var as an
+    install-time signal to skip `devDependencies` — which is exactly
+    where every `@types/*` package this TypeScript build needs actually
+    lives. Without this flag, `tsc` still runs (found on `PATH`) but
+    fails with a wall of "Could not find a declaration file for module
+    'express'"-style errors, since the type packages themselves were
+    never installed.
+  - The trailing `npx prisma migrate deploy`: Render's **free** tier has
+    no Shell tab at all (a Starter-plan-and-up feature), so there's no
+    later one-off command to run this manually — it has to be part of
+    the pipeline itself. Safe to leave in permanently: `migrate deploy`
+    only applies pending migrations and is a no-op if the schema's
+    already current, so it doesn't hurt anything on a normal redeploy
+    that doesn't need a new migration. (If you're on a paid plan with a
+    Pre-Deploy Command field, that's the more "correct" place for this —
+    it runs after a successful build but before the new version
+    receives traffic — but it isn't available on free.)
 - **Start Command**:
   ```
   node apps/api/dist/index.js
