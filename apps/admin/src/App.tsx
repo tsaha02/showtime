@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Box, Skeleton, Stack } from "@mui/material";
 import AdminLayout from "./components/AdminLayout";
 import AuthGate from "./components/AuthGate";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import LoginPage from "./pages/LoginPage";
 
 // Route-level code splitting — AnalyticsPage alone pulls in `recharts`
@@ -41,6 +42,7 @@ function RouteFallback() {
 export default function App() {
   return (
     <BrowserRouter>
+      <ErrorBoundary>
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -67,6 +69,7 @@ export default function App() {
           </Route>
         </Routes>
       </Suspense>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }

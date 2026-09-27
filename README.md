@@ -15,6 +15,21 @@ shows, pricing) and moderates bookings/ratings.
 handling** — see [Race-condition handling](#race-condition-handling-the-centerpiece)
 below, and [INTERVIEW_NOTES.md](./INTERVIEW_NOTES.md) for the deep dive.
 
+## Live demo
+
+| | |
+|---|---|
+| Customer app | https://showtime-web-frontend-gamma.vercel.app |
+| Admin panel | https://showtime-admin-gray.vercel.app (`admin@showtime.dev` / `Admin123!`) |
+| Demo customer login | `demo@showtime.dev` / `Demo1234!` (or check out as a guest) |
+
+Deployed on Render (API) + Vercel (both frontends), free tier — see
+[DEPLOYMENT.md](./DEPLOYMENT.md) for the full setup and the real
+deploy-time bugs that came up getting it there. **Note**: the free API
+instance spins down after ~15 min idle and takes ~30-60s to wake back up
+on the next request — if the site feels slow to load the very first
+time, that's this, not a bug.
+
 ---
 
 ## Architecture

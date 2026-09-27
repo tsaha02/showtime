@@ -1041,3 +1041,88 @@ a one-line-per-file change, but worth noting specifically because it
 was the same breakpoint tuple duplicated five times: fixing it meant
 finding and updating every occurrence consistently, not just the one
 page someone happened to be looking at.
+
+---
+
+## 14. Deploying for real — five environment bugs that never show up locally
+
+Everything in this project passed `typecheck`/`lint`/`build` locally
+throughout development. None of that caught any of the five real bugs
+below — every one of them is a category of problem that specifically
+only exists once code leaves a machine where it was written and run
+continuously, which is exactly why "it builds on my machine" was never
+treated as equivalent to "it's ready to deploy."
+
+**1. A deprecated TypeScript option that worked locally but not on a
+fresh install.** Both `packages/shared` and `apps/api`'s tsconfigs used
+`moduleResolution: "Node"` — a legacy value TypeScript internally
+aliases to `"node10"`. Locally, whatever was already resolved on disk
+tolerated it; Render's genuinely fresh `npm install` hit it as a hard
+`TS5108` error ("Option 'moduleResolution=node10' has been removed").
+Same TypeScript version, same lockfile, different outcome — the honest
+lesson is that "compiles for me" can depend on accumulated local state
+a truly clean install doesn't have. Fixed by removing the option
+entirely: with `module: "CommonJS"` already set, tsc picks a correct
+default on its own, with no dependency on a legacy alias that different
+versions treat differently.
+
+**2. `NODE_ENV=production` silently broke the build that needed
+`NODE_ENV=production` to be set.** The API needs `NODE_ENV=production`
+at *runtime* for cookie behavior (`SameSite=None; Secure` across
+Vercel↔Render's cross-site relationship — see the auth section above).
+But that same env var is visible during the *build* step on Render, and
+`npm install` treats it as a signal to skip `devDependencies` — exactly
+where every `@types/*` package the TypeScript compile needs actually
+lives. The result was a wall of `TS7016: Could not find a declaration
+file for module 'express'`-style errors, even though `tsc` itself ran
+fine (found on `PATH`). One setting, needed for two different reasons,
+fighting itself across two different phases of the same deploy. Fixed
+with `npm install --include=dev` in the Build Command specifically —
+not by removing `NODE_ENV=production`, since the runtime cookie
+behavior still needs it.
+
+**3. Render's free tier has no Shell — so "run the migration/seed
+afterward" needed a different design entirely.** The original plan (a
+Pre-Deploy Command, or a one-off Shell command after first deploy) both
+assumed a paid-plan feature that doesn't exist on free. The actual fix
+for the migration was to fold `prisma migrate deploy` directly into the
+end of the Build Command — safe to leave permanently, since it's a
+no-op once the schema's current. The seed script has no such build-time
+answer (you don't want a schema-only migration step to also silently
+wipe production data on every deploy) — its real fix was running it
+from a local machine instead, pointed at the database's *external*
+connection string rather than the internal one used in the API's own
+env vars. Two different problems that looked like the same problem
+("no Shell") needed two different solutions, not one.
+
+**4. Turborepo hides env vars from a build unless you tell it not
+to.** Vercel warned, correctly, that `VITE_API_URL`/`VITE_SOCKET_URL`/
+`VITE_STRIPE_PUBLISHABLE_KEY` were set on the project but wouldn't reach
+the build — Turborepo's default "strict" env mode only passes through
+env vars a task explicitly declares in `turbo.json`. The build still
+"succeeded" (Vite happily built with those values simply absent,
+`import.meta.env.VITE_API_URL` resolving to `undefined`), which is the
+dangerous part: nothing about a green build told you the deployed site
+would have no way to reach its own API. Fixed by adding an explicit
+`"env"` array to the `build` task. Worth remembering generally: a
+successful build is not proof a build did the right thing — it only
+proves the steps that ran, ran without throwing.
+
+**5. Vercel's "Root Directory" setting silently double-nests every
+other path-based setting.** With Root Directory accidentally set to
+`apps/web` (Vercel's own import wizard suggested this, since it detects
+a `package.json` there) instead of blank, the *separately* correct
+Output Directory setting of `apps/web/dist` got resolved relative to
+that root — i.e., Vercel was actually looking for
+`apps/web/apps/web/dist`. The build logs looked completely clean right
+up until the final "No Output Directory found" error, because the
+build itself doesn't care about Root Directory the same way deployment
+packaging does. A second, separate trap stacked on top of this one:
+clicking "Redeploy" on the already-failed deployment kept reproducing
+the exact same error even after the setting was fixed, because Redeploy
+reuses the build configuration snapshotted at that deployment's
+original creation time, not whatever the project's settings currently
+say — only a genuinely NEW deployment (a fresh commit, or an explicit
+"create deployment from latest commit" action) picks up a settings
+change. Two silent, compounding gotchas that between them produced an
+identical-looking error for two entirely different reasons in sequence.

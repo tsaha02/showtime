@@ -7,6 +7,7 @@ import { GlobalToast } from "./components/GlobalToast";
 import { Footer } from "./components/Footer";
 import { RequireAuth } from "./components/RequireAuth";
 import { EnableNotificationsBanner } from "./components/EnableNotificationsBanner";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useAppDispatch } from "./store/hooks";
 import { useGetMeQuery } from "./store/api";
 import { setUser, clearUser } from "./store/slices/authSlice";
@@ -181,9 +182,11 @@ export default function App() {
       <NavBar />
       <EnableNotificationsBanner />
       <Container maxWidth="lg" sx={{ pt: 3, pb: 4 }}>
-        <Suspense fallback={<RouteFallback />}>
-          <AnimatedRoutes />
-        </Suspense>
+        <ErrorBoundary>
+          <Suspense fallback={<RouteFallback />}>
+            <AnimatedRoutes />
+          </Suspense>
+        </ErrorBoundary>
       </Container>
       <Footer />
       <GlobalToast />

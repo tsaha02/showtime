@@ -1,5 +1,22 @@
 # Deploying ShowTime
 
+## Live deployment
+
+| | |
+|---|---|
+| Customer app | https://showtime-web-frontend-gamma.vercel.app |
+| Admin panel | https://showtime-admin-gray.vercel.app (admin@showtime.dev / Admin123!) |
+| API | https://showtime-tpip.onrender.com |
+
+**Render free tier cold start**: the API spins down after ~15 minutes of
+no traffic and takes roughly 30-60 seconds to wake back up on the next
+request. If you're demoing this to someone, hit the API URL yourself a
+minute beforehand so it's already warm — otherwise their first page
+load will hang noticeably before anything appears, which reads as a bug
+even though it's just free-tier infrastructure behavior.
+
+---
+
 **Target architecture:** `apps/web` and `apps/admin` on Vercel (static Vite
 builds), `apps/api` on Render (a long-running Node web service — required
 because Socket.io needs persistent connections, which rules out any
@@ -104,28 +121,44 @@ in the same Render project. Render gives you connection strings for both
 | `VAPID_SUBJECT` | a `mailto:` address or `https://` URL — defaults to `mailto:noreply@showtime.dev` if unset, doesn't need to be monitored |
 | `PORT` | Render sets this automatically; the app already reads `process.env.PORT`, don't override it |
 
-### First deploy — seed the production database once, manually
+### First deploy — and keeping it fresh — seed the production database from your own machine
 The build/deploy pipeline above only migrates the schema — it deliberately
 does **not** run the seed script automatically (you don't want a normal
-deploy to silently wipe/reset production data). After the first
-successful deploy, open a one-off shell against the service (Render's
-dashboard has a "Shell" tab for this) and run:
+deploy to silently wipe/reset production data).
+
+Render's **free** tier has no Shell tab at all (that's a paid-plan
+feature), so there's no one-off command to run *on* the service. Instead,
+run the seed script from your own machine, pointed at the production
+database via its **External Database URL** (Render's Postgres resource
+page → distinct from the *Internal* URL used in the API's own
+`DATABASE_URL` env var, which only resolves from inside Render's private
+network):
 ```
-npm run db:seed --workspace=apps/api
+DATABASE_URL="<external-database-url>" npm run db:seed --workspace=apps/api
 ```
-Then, to get a real movie catalog and some bookable shows (as done
-throughout local development), hit the admin bulk-import/auto-schedule
-endpoints once against the live URL, or just do it through the deployed
-admin panel once it's up (Movies → Populate Popular Movies, Shows →
-Auto-schedule Shows).
+(Run this from the repo root, on your own machine, with your local
+`node_modules` already installed — it's the exact same seed script local
+dev uses, just pointed at a different database via the inline env var,
+which takes precedence over whatever `apps/api/.env` has.)
+
+This single command **fully resets** the database — it wipes every
+table (users, bookings, ratings, everything) and recreates the whole
+demo catalog: movies, theatres, shows, the admin/demo accounts, coupons,
+food items, events. Safe and expected the first time; just be aware
+that re-running it later also wipes anyone who's registered an account
+or made a real booking against the live demo since — there's no
+"add more without touching what's there" mode, by design (see
+`prisma/seed.ts`'s `deleteMany` calls at the top).
 
 **Keeping the demo fresh over time**: the seed script's shows are
 scheduled relative to "now" at seed time. If this deployment sits for a
-few weeks without anyone re-running the seed/auto-schedule steps, the
-"Now Showing" list will gradually empty out as those shows' start times
-slide into the past — that's expected, not a bug, and the fix is the
-same one-off shell command above, re-run occasionally (or right before
-you plan to demo it to someone).
+few weeks without anyone re-running the seed, the "Now Showing" list
+will gradually empty out as those shows' start times slide into the
+past — that's expected, not a bug. The fix is the exact same command
+above, re-run occasionally (or right before you plan to demo it to
+someone) — there's no automated schedule for this (Render's free tier
+has no cron/background-job feature either), so it's a manual step to
+remember.
 
 ---
 
